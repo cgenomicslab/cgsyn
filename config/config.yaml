@@ -1,0 +1,69 @@
+# Species and data paths
+species: []  # Set via --species flag or uncomment and edit
+
+## Resources paths
+gff_dir: "resources/gff"
+proteome_dir: "resources/proteomes"
+
+## Intermediates paths
+filtered_proteome_dir: "intermediates/filtered_proteomes"
+tsv_dir: "intermediates/tsv"
+
+# Analysis modes (set to true/false)
+run_parsing: false
+run_orthofinder: false
+run_rbh: false
+run_dotplots_orthofinder: false
+run_dotplots_rbh: false
+run_ribbons_orthofinder: false
+run_ribbons_rbh: false
+run_alg_discovery_orthofinder: false
+run_alg_discovery_rbh: false
+run_ribbons_multi_orthofinder: false
+run_ribbons_multi_rbh: false
+run_gene_analysis: false
+
+# Orthofinder/RBH settings
+orthofinder:
+  aligner: "diamond"  # or "blast"
+  threads: 12
+
+rbh:
+  aligner: "diamond"
+  threads: 12
+
+# Fisher's test parameters
+fishers:
+  alpha: 0.01
+  min_matches: false
+
+# Plotting parameters
+dotplot:
+  dot_size: 2
+  dot_alpha: 0.6
+  figsize: [15, 15]
+
+alg:
+  similarity_threshold: 0.3
+  min_orthologs: 10
+
+ribbon:
+  ribbon_alpha: 0.3
+  figsize: [20, 12]
+  curve_style: "bezier"
+
+ribbons_multi:
+  ribbon_alpha: 0.3
+  figsize: [25, 15]
+  curve_style: "bezier"
+
+# Gene analysis (only used if run_gene_analysis: true)
+gene_analysis:
+  triangle_species:
+    - "BFL"
+    - "PMA"
+    - "EMU"
+  rest_species:
+    - "HVU"
+    - "RES"
+  mbh: false  # false = triangle mode, true = full MBH
