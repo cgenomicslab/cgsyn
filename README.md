@@ -269,18 +269,21 @@ CGSyn implements two modes:
 Results are saved as a .tsv table with one row per family and one column per species, and a human-readable .txt file listing the protein IDs and chromosomal locations of each family member in the ```results/gene_analysis``` directory.
 
 ## Usage Examples
-A user can run multiple flags at the same time, as long as they all belong to the same Orthology Inference Pathway (Orthofinder vs RBH)
+A user can run multiple flags at the same time, as long as they all belong to the same Orthology Inference Pathway (Orthofinder vs RBH).
+The --download flag/function can only be run on its own.
 
 Orthofinder Full Analysis Example:
 
 ```bash
-./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,..."> --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --ribbons-multi-orthofinder --alg-discovery-orthofinder --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
+./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,...">
+./synteny.sh --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --ribbons-multi-orthofinder --alg-discovery-orthofinder --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
 ```
 
 RBH Full Analysis Example:
 
 ```bash
-./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,..."> --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --ribbons-multi-rbh --alg-discovery-rbh --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
+./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,...">
+./synteny.sh --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --ribbons-multi-rbh --alg-discovery-rbh --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
 ```
 
 ## Citations:
