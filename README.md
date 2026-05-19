@@ -13,7 +13,7 @@ CGSyn currently only works on Unix-based systems (Linux/macOS).
 #### Install via command line
 ```bash
 git clone https://github.com/cgenomicslab/CGSyn.git
-cd CGSyn
+cd cgsyn
 ```
 
 #### Install via browser
@@ -25,7 +25,7 @@ cd CGSyn
 ### Set Up Environment
 1. Open a terminal and navigate to the project directory:
 ```bash
-cd CGSyn
+cd cgsyn
 ```
 2. Create a conda environement with all the required software for the tool and activate it
 ```bash
