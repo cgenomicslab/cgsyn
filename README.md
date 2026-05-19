@@ -96,7 +96,7 @@ You can either download these files manually from [NCBI Genome](https://www.ncbi
 
 - Example:
 ```bash
-./synteny.sh --download --species-queries "9606,Mus musculus” --species-labels "Hsap,Mmus"
+./synteny.sh --download --species-queries "9606,Mus musculus" --species-labels "Hsap,Mmus"
 ```
 The "species-queries" flag can take either the species' Tax ID or its scientific name. The "species-labels" flag renames the proteome and annotation 
 files with your preferred labels (e.g. Hsap.faa.gz, Hsap.gff.gz). While optional, it is highly recommended you utilize this flag to set easily distinguishable, 
@@ -274,13 +274,13 @@ A user can run multiple flags at the same time, as long as they all belong to th
 Orthofinder Full Analysis Example:
 
 ```bash
-./synteny.sh --download --species-queries <"species1,species2,species3,...”> --species-labels <"sp1,sp2,sp3,..."> --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --ribbons-multi-orthofinder --alg-discovery-orthofinder --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
+./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,..."> --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --ribbons-multi-orthofinder --alg-discovery-orthofinder --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
 ```
 
 RBH Full Analysis Example:
 
 ```bash
-./synteny.sh --download --species-queries <"species1,species2,species3,...”> --species-labels <"sp1,sp2,sp3,..."> --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --ribbons-multi-rbh --alg-discovery-rbh --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
+./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,..."> --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --ribbons-multi-rbh --alg-discovery-rbh --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
 ```
 
 ## Citations:
