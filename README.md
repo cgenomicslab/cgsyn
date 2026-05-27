@@ -12,7 +12,7 @@ CGSyn currently only works on Unix-based systems (Linux/macOS).
 
 #### Install via command line
 ```bash
-git clone https://github.com/cgenomicslab/CGSyn.git
+git clone https://github.com/cgenomicslab/cgsyn.git
 cd cgsyn
 ```
 
@@ -27,7 +27,7 @@ cd cgsyn
 ```bash
 cd cgsyn
 ```
-2. Create a conda environement with all the required software for the tool and activate it
+2. Create a conda environment with all the required software for the tool and activate it
 ```bash
 conda env create -f workflow/envs/synteny.yaml -n <name>
 conda activate <name>
@@ -70,6 +70,7 @@ conda activate <name>
     │   ├── ncbi_download.py
     │   ├── run_alg_discovery_orthofinder.py
     │   ├── run_alg_discovery_rbh.py
+    │   ├── run_compare_methods.py
     │   ├── run_dotplot_orthofinder.py
     │   ├── run_dotplot_rbh.py
     │   ├── run_gene_analysis.py
@@ -132,11 +133,11 @@ By running:
 
 CGSyn will parse the gff and proteome files and
 1. extract the genome coordinates (chromosome/scaffold, start coord, end coord, strand) of every gene annotated in the assembly
-2. filter through the isoforms produced by it, in order to keep the ProteinID of its longest isoform
+2. filter through the isoforms produced by each gene, in order to keep the ProteinID of its longest isoform
 3. clean the proteome files to remove all isoforms apart from the longest for every gene
 
-The new filtered proteomes will be put in ```./intermediates/filtered_proteomes```, while .tsv files containing the following columns: ```GeneID, ProteinID, chr, start, end, strand```
-will be created and put in ```./intermediates/tsv```. The former will be used in Orthology Inference, while the latter will be instrumental in the post-inference analyses.
+The new filtered proteomes will be saved in ```./intermediates/filtered_proteomes```, while .tsv files containing the following columns: ```GeneID, ProteinID, chr, start, end, strand```
+will be created and saved in ```./intermediates/tsv```. The former will be used in Orthology Inference, while the latter will be instrumental in the post-inference analyses.
 
 ### Step 3: Orthology Inference
 
@@ -153,41 +154,72 @@ There are 2 alternatives for inferring gene orthology:
 **Orthofinder** runs an all-vs-all similarity search between the proteins of the query organisms, produces a sequence similarity graph and runs Markov Clustering to 
 infer Orthogroups (Gene Families across all species which seem to be descended from the same common ancestor), as well as orthologous pairs of genes between pairs of Organisms.
 
+Orthofinder also has a set of optional arguments you can set to change the clustering stringency and tree inference methods. More specifically:
+
+* ```--inflation VALUE```
+MCL inflation parameter for OrthoFinder clustering (default: 1.2). Higher values produce more, smaller orthogroups; lower values produce fewer, larger ones.
+* ```--tree-method METHOD```
+Gene tree inference method for OrthoFinder (default: ```msa```). Options: ```msa```, ```dendroblast```.
+* ```--msa-program PROGRAM```
+MSA program used when ```--tree-method msa``` (default: ```famsa```). Options: ```famsa```, ```muscle```, ```mafft```.
+* ```--tree-inference METHOD```
+Tree inference method used when ```--tree-method msa``` (default: ```fasttree```). Options: ```fasttree```, ```fasttree_fastest```, ```raxml```, ```iqtree3```.
+
 **RBH** runs a similarity search between all proteins of species A against all proteins of species B and vice versa and keeps the reciprocal best hits as orthologous pairs.
-It then does this for all possible pairs of species (Multiple Reciprocal Best Hits - MBH) to create a cluster of proteins that supposedly belong to the same gene family.
+It then does this for all possible pairs of species (Multiple Reciprocal Best Hits - MBH) to create a cluster of proteins (one protein per species) that are all orthologous with each other (no paralogs)
 
 RBH is much faster, even with many species, but Orthofinder finds more orthologous pairs and produces a lot more outputs for further use, including gene trees and a species tree.
 Therefore, Orthofinder is suggested.
 
-Similarly, using Diamond instead of BLASTP as an aligner for both inference methods is suggested due to its significantly quicker running time.
+Similarly, using Diamond instead of BLASTP as an aligner for both inference methods is suggested due to its significantly quicker running time. Orthofinder has a few extra options for aligners,
+including  ```diamond_ultra_sens```, ```mmseqs``` and ```blastn```.
 
 Orthology Inference results will be saved in ```./results/orthofinder``` and ```./results/rbh``` respectively.
+
+You can also try running: 
+```bash
+./synteny.sh --compare-methods
+```
+after completing both methods of inference with the same set of species in order to get an overview of both their results
+and make a conscious choice for yourself about which one is best for your project. Report is saved in ```./logs/orthology_comparison.txt``` and covers orthogroup counts, pairwise 1-to-1 ortholog pair counts (pre- and post-filtering), and species coverage statistics.
+
+### *For all downstream analyses*:
+
+If you used OrthoFinder as your orthology inference method, all downstream analyses will use 1-to-1 Ortholog Pairs by default - pairs of genes where each gene is the single best reciprocal match of the other, with no duplications in either species. These represent the clearest signal of shared ancestry and are the gold standard for synteny analysis.
+
+For deeply diverged species, however, the number of inferred 1-to-1 pairs can be very low, causing the Fisher's exact test to miss significant chromosome pairs due to insufficient data. In these cases, the ```--shared-ogs``` flag offers a more sensitive alternative: instead of requiring strict 1-to-1 orthology, it counts how many genes belonging to the same orthogroup are shared between species. This increases sensitivity while still using the orthogroup framework to define homology.
+
+```--shared-ogs``` is compatible with all downstream analyses and can be freely combined with other flags. It is incompatible with ```--rbh```, since RBH already produces strict 1-to-1 pairs by definition. 
+
+WARNING ⚠️: For neighboring species, this could cause an overinflation of conserved syntenic genes, producing a potentially chaotic visualization result. 
 
 ### Step 4: Dot Plots and Ribbon Diagrams Creation
 
 **Oxford Dot Plots** are a standard tool in comparative genomics for visualizing synteny between two species. Each dot represents a pair of orthologous genes, placed according to their genomic position in each species - species 1 on the X axis and species 2 on the Y axis. Chromosomes are displayed sequentially along each axis, separated by gridlines.
 
-Only genes from chromosome pairs that pass a Fisher's exact test for significant ortholog enrichment (Bonferroni-corrected, α = 0.01 by default - can be changed in config file) are colored; 
-all other dots are shown in gray. We assume these chromosome pairs have a conserved synteny, since they share more orthologous pairs than they would by random chance.
-The colors themselves represent the chromosomes of species 1 and have no further significance. 
+Only genes from chromosome pairs that pass a Fisher's exact test for significant ortholog enrichment (Bonferroni-corrected, α = 0.01 by default - can be changed) are colored; 
+all other dots are shown in gray. We assume these chromosome pairs have a conserved synteny, since they share more orthologous pairs than they would by random chance. 
+
+To color
+all dots instead, you can add the ```--color-nonsignificant``` flag at the end of your command. In that case, significant pairs will be distinguished with an increased color brightness. The colors themselves only represent the chromosomes of species 1 and have no further significance. 
 
 In Dot Plots, chromosomes are ordered nominally (e.g. 1-10, I-VII, A-F etc).
 
 To create dot plots, you can run either of these, depending on if you want to use the inference results from Orthofinder or RBH.
 
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --dotplots-orthofinder
+./synteny.sh --species <sp1,sp2,sp3,...> --dotplots-orthofinder [OPTIONAL] --color-nonsignificant
 ```
 or
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --dotplots-rbh
+./synteny.sh --species <sp1,sp2,sp3,...> --dotplots-rbh [OPTIONAL] --color-nonsignificant
 ``` 
 The plots are saved in .png format in the ```./results/dotplots_orthofinder``` and ```./results/dotplots_rbh``` directories.
 
-**Synteny Ribbon Diagrams** are visual representations used in comparative genomics to illustrate the conservation of gene order and large-scale evolutionary relationships across multiple genomes. They highlight structural rearrangements—such as inversions and translocations—by connecting homologous chromosomal regions with colored, curved "ribbons"
+**Synteny Ribbon Diagrams** are visual representations used in comparative genomics to illustrate the conservation of gene order and large-scale evolutionary relationships across multiple genomes. They highlight structural rearrangements—such as inversions and translocations—by connecting homologous chromosomal regions with colored, curved "ribbons".
 
 Similarly to Oxford Dot Plots, only ribbons connecting genes from chromosome pairs that pass a Fisher's exact test for significant ortholog enrichment
-(Bonferroni-corrected, α = 0.01 by default - can be changed in config file) are colored, with each color simply representing one of the chromosomes of species 1.
+(Bonferroni-corrected, α = 0.01 by default - can be changed) are colored, with each color simply representing one of the chromosomes of species 1.
 
 In Ribbon Plots, chromosomes of species 1 are ordered nominally, while chromosomes of species 2 are ordered in a way that will create the least amount of curved (Bézier) ribbons.
 
@@ -208,24 +240,27 @@ The plots are saved in .png format in the ```./results/ribbons_orthofinder``` an
 and have remained co-localized across evolutionary time. Identifying ALGs allows us to reconstruct the ancestral chromosomal architecture of a lineage 
 and understand how chromosomes have been broken, fused or rearranged since that ancestor.
 
-CGSyn's ALG discovery algorithm takes a multi-species approach to identifying these conserved chromosomal units. It works as follows:
+CGSyn's default ALG discovery algorithm takes a multi-species approach to identifying these conserved chromosomal units. It works as follows:
 
 1. Multi-species Fisher's test: Fisher's exact test is run for every possible pair of species simultaneously, identifying which chromosome-to-chromosome relationships share significantly more orthologs than expected by chance. This produces a filtered ortholog map tracking which species pairs each gene is significant in.
-2. Synteny similarity matrix: For each pair of species, the fraction of their shared orthologs that fall in statistically significant chromosome pairs is computed, producing an N×N similarity matrix.
-3. Species clustering: Species are grouped into synteny clusters via hierarchical clustering on the similarity matrix. Species with strong conserved synteny (e.g. two species from the same phylum) will cluster together, while distantly related species will form separate clusters (default similarity threshold = 0.3, can be changed in config).
+2. Synteny similarity matrix: For each pair of species, the fraction of their shared orthologs that fall in statistically significant chromosome pairs is computed, producing an N×N synteny similarity matrix (saved as heatmap).
+3. Species clustering [DEFAULT but OPTIONAL]: Species are grouped into synteny clusters via hierarchical clustering on the similarity matrix. Species with strong conserved synteny (e.g. two species from the same phylum) will cluster together, while distantly related species will form separate clusters (default similarity threshold = 0.3).
 4. Chain building: For each cluster, all possible chromosome chains are constructed by following significant adjacent pairwise matches across species (e.g. Hsap1 → Mmus1 → Ggal5 → Bflor17).
 5. Chain verification: Each candidate chain is verified by checking that every pairwise combination of species in the chain has a statistically significant chromosome match - not just adjacent ones. Chains that fail any pairwise check are rejected.
 
 You can run the ALG discovery algorithm with:
 
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --alg-discovery-orthofinder
+./synteny.sh --species <sp1,sp2,sp3,...> --alg-discovery-orthofinder --similarity-threshold VALUE
 ```
 or
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --alg-discovery-rbh
+./synteny.sh --species <sp1,sp2,sp3,...> --alg-discovery-rbh --similarity-threshold VALUE
 ```
-The output is a set of ALG assignments per species per chromosome, prefixed by cluster (e.g. C2_ALG1), saved as both a machine-readable .pkl file and a human-readable summary .txt file, saved in the ```./results/alg_orthofinder``` and ```./results/alg_rbh``` directories.
+
+It is also possible to skip the species clustering step with the optional ```--no-cluster``` flag and infer the Linkage Groups which were present in the common ancestor of all your species, no matter how evolutionarily distant they are.
+
+The outputs are a set of ALG assignments per species per chromosome, prefixed by cluster (e.g. C2_ALG1), saved as both a machine-readable .pkl file and a human-readable summary .txt file, as well as a heatmap visualizing the synteny similarity matrix between all species, saved in the ```./results/alg_orthofinder``` and ```./results/alg_rbh``` directories.
 
 **Multi-Species Ribbon Diagrams** extend the pairwise ribbon plot concept to N species simultaneously. Species are arranged vertically, with chromosomes displayed as horizontal lines for each species. Individual Bezier curve ribbons connect each orthologous gene across adjacent species pairs.
 If ALG discovery has been run, ribbons are colored by ALG identity, making it visually straightforward to trace ancestral chromosomal units across all species in the analysis. Ribbons between species in different synteny clusters are suppressed, and a red dashed line marks cluster boundaries. Colored rectangles below the bottom species of each cluster serve as an ALG legend.
@@ -241,6 +276,10 @@ or
 ./synteny.sh --species <sp1,sp2,sp3,...> --ribbons-multi-rbh
 ```
 The plots are saved in .png format in the ```./results/ribbons_multi_orthofinder``` and ```./results/ribbons_multi_rbh``` directories.
+
+### Color-blind Color Palette Option
+
+By adding the ```--cb-colors``` flag to any of the previous plotting options, CGSyn will switch to a colorblind-safe color palette for all plots, based on [Wong (2011)](https://www.nature.com/articles/nmeth.1618) and [Paul Tol's](https://cran.r-project.org/web/packages/khroma/vignettes/tol.html) bright, vibrant and muted color schemes. 
 
 ### Extra: Anchor Gene Family Analysis
 
@@ -291,3 +330,5 @@ RBH Full Analysis Example:
 2. Schultz, D.T., Haddock, S.H.D., Bredeson, J.V. et al. Ancient gene linkages support ctenophores as sister to other animals. Nature 618, 110–117 (2023). https://doi.org/10.1038/s41586-023-05936-6
 3. Emms, D.M. & Kelly, S. OrthoFinder: phylogenetic orthology inference for comparative genomics. Genome Biology 20, 238 (2019). https://doi.org/10.1186/s13059-019-1832-y 
 4. Emms, D.M. & Kelly, S. OrthoFinder: solving fundamental biases in whole genome comparisons dramatically improves orthogroup inference accuracy. Genome Biology 16, 157 (2015). https://doi.org/10.1186/s13059-015-0721-2
+5. Wong, B. Points of view: Color blindness. Nat Methods 8, 441 (2011). https://doi.org/10.1038/nmeth.1618
+6. https://cran.r-project.org/web/packages/khroma/vignettes/tol.html
