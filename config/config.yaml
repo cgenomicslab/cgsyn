@@ -68,11 +68,6 @@ ribbons_multi:
 
 # Gene analysis (only used if run_gene_analysis: true)
 gene_analysis:
-  triangle_species:
-    - "BFL"
-    - "PMA"
-    - "EMU"
-  rest_species:
-    - "HVU"
-    - "RES"
+  triangle_species: []
+  rest_species: []
   mbh: false  # false = triangle mode, true = full MBH
