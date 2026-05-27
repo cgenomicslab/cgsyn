@@ -5,6 +5,15 @@ from synteny import *
 import matplotlib.pyplot as plt
 import pickle
 
+color_palette = custom_colors_cb if snakemake.params.cb_colors else custom_colors
+
+if snakemake.params.get('shared_ogs', False):
+    raise ValueError(
+        "--shared-ogs is incompatible with RBH orthology inference. "
+        "RBH already produces strict 1-to-1 pairs by definition. "
+        "Please use --orthofinder with --shared-ogs."
+    )
+
 species_list = snakemake.params.species_list
 
 print(f"\n{'='*60}")
@@ -55,7 +64,19 @@ if snakemake.params.alg_discovery:
         species_names=species_list,
         fishers_multi_results=filtered_map,
         similarity_threshold=snakemake.params.similarity_threshold,
-        min_orthologs=snakemake.params.min_orthologs
+        min_orthologs=snakemake.params.min_orthologs,
+        cluster_species=snakemake.params.cluster_species
+    )
+    
+    # Save similarity heatmap
+    heatmap_path = os.path.join(
+        os.path.dirname(snakemake.output.alg_results_path),
+        "synteny_similarity_heatmap.png"
+    )
+    save_similarity_heatmap(
+        similarity_matrix=alg_results['similarity_matrix'],
+        species_names=species_list,
+        output_path=heatmap_path
     )
     
     os.makedirs(os.path.dirname(snakemake.params.alg_results_path), exist_ok=True)
@@ -115,7 +136,8 @@ fig, ax = plot_synteny_ribbons_multi(
     alg_results=alg_results,
     ribbon_alpha=snakemake.params.ribbon_alpha,
     figsize=tuple(snakemake.params.figsize),
-    curve_style=snakemake.params.curve_style
+    curve_style=snakemake.params.curve_style,
+    color_palette=color_palette
 )
 
 plt.savefig(snakemake.output.plot, dpi=300, bbox_inches='tight')

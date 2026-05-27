@@ -18,6 +18,8 @@ from scipy.cluster.hierarchy import linkage, fcluster # type: ignore
 from scipy.spatial.distance import squareform # type: ignore
 import numpy as np
 import matplotlib.pyplot as plt # pyright: ignore[reportMissingModuleSource]
+import seaborn as sns # pyright: ignore[reportMissingModuleSource]
+import tempfile
 
 ## Proteome/Annotation File Parser
 
@@ -630,7 +632,9 @@ def find_mutual_best_hits_multi(species_list, proteome_dir, output_dir,
 
 ## With OrthoFinder
 
-def run_orthofinder(filtered_prot_dir, output_dir, num_threads=12, aligner='diamond', extra_args=None):   
+def run_orthofinder(filtered_prot_dir, output_dir, species_list=None, num_threads=12, 
+                    aligner='diamond', inflation=1.2, tree_method='msa', 
+                    msa_program='famsa', tree_inference='fasttree', extra_args=None):
     """
     Run OrthoFinder on a directory of proteome files.
     
@@ -638,132 +642,382 @@ def run_orthofinder(filtered_prot_dir, output_dir, num_threads=12, aligner='diam
     -----------
     filtered_prot_dir : str
         Path to directory containing protein fasta files (one per species)
-        Files should be named like: Species1.fasta, Species2.fasta, etc.
+    output_dir : str
+        Output directory path
     num_threads : int
-        Number of threads/CPUs to use (default: 4)
+        Number of threads/CPUs to use (default: 12)
     aligner : str
-        Alignment tool: 'diamond' (default, fast) or 'blast' (slower, sensitive)
-    output_dir : str, optional
-        Custom output directory. If None, OrthoFinder creates one automatically
+        Sequence search program (default: 'diamond')
+        Options: 'diamond', 'diamond_ultra_sens', 'blastp', 'mmseqs', 'blastn'
+    inflation : float
+        MCL inflation parameter controlling cluster granularity (default: 1.2)
+        Higher values produce more, smaller clusters.
+        Lower values produce fewer, larger clusters.
+    tree_method : str
+        Method for gene tree inference (default: 'msa')
+        Options: 'dendroblast', 'msa'
+    msa_program : str
+        MSA program, only used when tree_method='msa' (default: 'famsa')
+        Options: 'muscle', 'mafft', 'famsa'
+    tree_inference : str
+        Tree inference method, only used when tree_method='msa' (default: 'fasttree')
+        Options: 'fasttree', 'fasttree_fastest', 'raxml', 'iqtree3'
     extra_args : list, optional
         Additional OrthoFinder arguments as a list
-        Example: ['-M', 'msa', '-T', 'iqtree']
     
     Returns:
     --------
     str
-        Path to OrthoFinder results directory
-    
-    Examples:
-    ---------
-    # Basic usage with DIAMOND (fast)
-    >>> results_dir = run_orthofinder('/path/to/proteomes', num_threads=16)
-    
-    # Using BLASTP (slower but sensitive)
-    >>> results_dir = run_orthofinder('/path/to/proteomes', 
-                                      num_threads=16, 
-                                      aligner='blast')
-    
-    # With custom output directory
-    >>> results_dir = run_orthofinder('/path/to/proteomes',
-                                      num_threads=16,
-                                      output_dir='./My_OrthoFinder_Results')
-    
-    # With additional arguments (gene trees + species tree)
-    >>> results_dir = run_orthofinder('/path/to/proteomes',
-                                      num_threads=16,
-                                      extra_args=['-M', 'msa', '-T', 'iqtree'])
+        Path to OrthoFinder Orthologues directory
     """
     
-    # Validate proteome directory exists
     if not os.path.exists(filtered_prot_dir):
         raise FileNotFoundError(f"Proteome directory not found: {filtered_prot_dir}")
     
-    # Check if directory contains fasta files
     fasta_files = list(Path(filtered_prot_dir).glob('*.fa*'))
     if not fasta_files:
         raise ValueError(f"No fasta files found in {filtered_prot_dir}")
     
+    # If no species list provided, use all proteomes in directory
+    if species_list is None:
+        species_list = [f.stem for f in fasta_files]
+    
     print("="*80)
     print("RUNNING ORTHOFINDER")
     print("="*80)
-    print(f"Proteome directory: {filtered_prot_dir}")
-    print(f"Number of species: {len(fasta_files)}")
-    print(f"Aligner: {aligner.upper()}")
-    print(f"Threads: {num_threads}")
+    print(f"Proteome directory:   {filtered_prot_dir}")
+    print(f"Species:              {', '.join(species_list)}")
+    print(f"Number of species:    {len(fasta_files)}")
+    print(f"Aligner:              {aligner.upper()}")
+    print(f"Threads:              {num_threads}")
+    print(f"MCL inflation:        {inflation}")
+    print(f"Gene tree method:     {tree_method}")
+    if tree_method == 'msa':
+        print(f"MSA program:          {msa_program}")
+        print(f"Tree inference:       {tree_inference}")
     print("="*80 + "\n")
     
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
+    
+    # ===== CREATE TEMP DIR WITH ONLY SELECTED SPECIES =====
+    tmp_proteome_dir = tempfile.mkdtemp(prefix="orthofinder_input_")
 
-    # Build OrthoFinder command
-    orthofinder_cmd = [
-        "orthofinder",
-        "-f", filtered_prot_dir,
-        "-t", str(num_threads),
-    ]
-    
-    # Add aligner selection
-    if aligner.lower() == 'diamond':
-        orthofinder_cmd.extend(["-S", "diamond"])
-    elif aligner.lower() == 'blast':
-        orthofinder_cmd.extend(["-S", "blast"])
-    else:
-        raise ValueError(f"Unknown aligner: {aligner}. Must be 'diamond' or 'blast'")
-    
-    # Add output directory if specified
-    if output_dir:
-        orthofinder_cmd.extend(["-o", output_dir])
-    
-    # Add any extra arguments
-    if extra_args:
-        orthofinder_cmd.extend(extra_args)
-    
-    print(f"Running command: {' '.join(orthofinder_cmd)}\n")
-    
-    # Run OrthoFinder
     try:
-        result = subprocess.run(
-            orthofinder_cmd,
-            check=True,
-            stdout=sys.stdout,
-            stderr=sys.stderr,
-            text=True
-        )
-        
-        # Print output
-        print(result.stdout)
-        
-        # Find the results directory
+        for sp in species_list:
+            src = os.path.join(filtered_prot_dir, f"{sp}.faa")
+            if not os.path.exists(src):
+                raise FileNotFoundError(f"Proteome not found for species {sp}: {src}")
+            dst = os.path.join(tmp_proteome_dir, f"{sp}.faa")
+            os.symlink(os.path.abspath(src), dst)
+
+        orthofinder_cmd = [
+            "orthofinder",
+            "-f", tmp_proteome_dir,
+            "-t", str(num_threads),
+            "-I", str(inflation),
+            "-M", tree_method,
+            "-S", aligner,
+        ]
+
+        if tree_method == 'msa':
+            orthofinder_cmd.extend(["-A", msa_program])
+            orthofinder_cmd.extend(["-T", tree_inference])
+
         if output_dir:
-            results_base = output_dir
-        else:
-            results_base = f"{filtered_prot_dir}/OrthoFinder"
-        
-        # Find the most recent Results_XXX directory
-        results_dirs = sorted(Path(results_base).glob("Results_*"))
-        if results_dirs:
-            latest_results = str(results_dirs[-1])
-            print("\n" + "="*80)
-            print("ORTHOFINDER COMPLETED SUCCESSFULLY")
-            print("="*80)
-            print(f"Results directory: {latest_results}")
-            print("="*80 + "\n")
-            orthologues_dir = f"{latest_results}/Orthologues"
-            return orthologues_dir
-        else:
-            raise RuntimeError(
-                "OrthoFinder did not produce any Results_* directory. "
-                "Check logs for errors."
+            orthofinder_cmd.extend(["-o", output_dir])
+
+        if extra_args:
+            orthofinder_cmd.extend(extra_args)
+
+        print(f"Running command: {' '.join(orthofinder_cmd)}\n")
+
+        try:
+            result = subprocess.run(
+                orthofinder_cmd,
+                check=True,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                text=True
             )
-            
-    except subprocess.CalledProcessError as e:
-        print(f"\nERROR: OrthoFinder failed with exit code {e.returncode}")
-        print(f"STDERR: {e.stderr}")
-        raise
+
+            print(result.stdout)
+
+            results_base = output_dir if output_dir else f"{filtered_prot_dir}/OrthoFinder"
+
+            results_dirs = sorted(Path(results_base).glob("Results_*"))
+            if results_dirs:
+                latest_results = str(results_dirs[-1])
+                print("\n" + "="*80)
+                print("ORTHOFINDER COMPLETED SUCCESSFULLY")
+                print("="*80)
+                print(f"Results directory: {latest_results}")
+                print("="*80 + "\n")
+                return f"{latest_results}/Orthologues"
+            else:
+                raise RuntimeError(
+                    "OrthoFinder did not produce any Results_* directory. "
+                    "Check logs for errors."
+                )
+
+        except subprocess.CalledProcessError as e:
+            print(f"\nERROR: OrthoFinder failed with exit code {e.returncode}")
+            print(f"STDERR: {e.stderr}")
+            raise
+
+    finally:
+        shutil.rmtree(tmp_proteome_dir, ignore_errors=True)
 
 
 # AFTER ORTHOLOGY PREDICTION
+
+## Orthology Methods Comparison
+
+def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_path):
+    """
+    Compare orthology inference results between OrthoFinder and RBH/MBH.
+    
+    Parameters:
+    -----------
+    orthofinder_dir : str
+        Path to OrthoFinder Orthologues directory
+    rbh_dir : str
+        Path to RBH/MBH results directory (results/rbh)
+    species_list : list of str
+        List of species IDs
+    output_path : str
+        Path to save the comparison report
+    
+    Returns:
+    --------
+    report : dict
+        Dictionary containing all comparison statistics
+    """
+    import itertools
+    
+    print("\n" + "="*70)
+    print("ORTHOLOGY METHOD COMPARISON")
+    print("="*70)
+    
+    report_lines = []
+    report_lines.append("ORTHOLOGY METHOD COMPARISON REPORT")
+    report_lines.append("="*70)
+    report_lines.append(f"Species: {', '.join(species_list)}")
+    report_lines.append("")
+    
+    species_pairs = list(itertools.combinations(species_list, 2))
+    
+    # ===== SECTION 1: Orthogroup counts =====
+    report_lines.append("="*70)
+    report_lines.append("1. ORTHOGROUP / GENE FAMILY COUNTS")
+    report_lines.append("="*70)
+    
+    of_orthogroups_path = os.path.join(
+        os.path.dirname(orthofinder_dir),
+        "Orthogroups", "Orthogroups.tsv"
+    )
+    
+    of_total_ogs = None
+    of_single_copy_ogs = None
+    of_single_species_ogs = None
+    of_df = None
+    
+    if os.path.exists(of_orthogroups_path):
+        of_df = pd.read_csv(of_orthogroups_path, sep='\t', index_col=0)
+        of_total_ogs = len(of_df)
+        of_single_copy_ogs = 0
+        of_single_species_ogs = 0
+        
+        for _, row in of_df.iterrows():
+            species_present = [
+                sp for sp in species_list
+                if pd.notna(row.get(sp)) and str(row.get(sp, '')).strip() != ''
+            ]
+            
+            if len(species_present) == 1:
+                of_single_species_ogs += 1
+            
+            if not any(',' in str(row.get(sp, '')) for sp in species_present):
+                of_single_copy_ogs += 1
+        
+        report_lines.append(f"\nOrthoFinder:")
+        report_lines.append(f"  Total orthogroups:           {of_total_ogs}")
+        report_lines.append(f"  Single-copy orthogroups:     {of_single_copy_ogs} ({100*of_single_copy_ogs/of_total_ogs:.1f}%)")
+        report_lines.append(f"  Single-species orthogroups:  {of_single_species_ogs} ({100*of_single_species_ogs/of_total_ogs:.1f}%) - discarded in downstream analysis")
+    else:
+        report_lines.append(f"\nOrthoFinder orthogroups file not found at: {of_orthogroups_path}")
+    
+    mbh_orthogroups_path = os.path.join(rbh_dir, "MBH_Orthogroups.tsv")
+    mbh_total_ogs = None
+    mbh_df = None
+    
+    if os.path.exists(mbh_orthogroups_path):
+        mbh_df = pd.read_csv(mbh_orthogroups_path, sep='\t', index_col=0)
+        mbh_total_ogs = len(mbh_df)
+        
+        report_lines.append(f"\nRBH/MBH:")
+        report_lines.append(f"  Total gene families:         {mbh_total_ogs}")
+        report_lines.append(f"  (All MBH families are single-copy by definition)")
+    else:
+        report_lines.append(f"\nRBH/MBH orthogroups file not found at: {mbh_orthogroups_path}")
+    
+    if of_total_ogs and mbh_total_ogs:
+        report_lines.append(f"\nDifference: OrthoFinder finds {of_total_ogs - mbh_total_ogs:+d} more gene families than MBH")
+    
+    # ===== SECTION 2: Pairwise 1-to-1 ortholog counts =====
+    report_lines.append("")
+    report_lines.append("="*70)
+    report_lines.append("2. PAIRWISE 1-TO-1 ORTHOLOG PAIR COUNTS")
+    report_lines.append("="*70)
+    report_lines.append("")
+    report_lines.append("Pre-filtering:  All ortholog pairs inferred by OrthoFinder, including")
+    report_lines.append("                many-to-many relationships where one or both species")
+    report_lines.append("                have multiple genes in the same orthogroup.")
+    report_lines.append("Post-filtering: Only strict 1-to-1 pairs retained after removing")
+    report_lines.append("                many-to-many relationships. These are the pairs")
+    report_lines.append("                actually used in downstream synteny analysis.")
+    report_lines.append("")
+    
+    col_width = 14
+    header = (
+        f"{'Pair':<28} "
+        f"{'OF Pre-filter':>{col_width}} "
+        f"{'OF Post-filter':>{col_width}} "
+        f"{'RBH/MBH':>{col_width}} "
+        f"{'Difference':>{col_width}}"
+    )
+    report_lines.append(header)
+    report_lines.append("-" * len(header))
+    
+    pair_stats = []
+    
+    for sp1, sp2 in species_pairs:
+        of_pair_path = os.path.join(orthofinder_dir, f"Orthologues_{sp1}", f"{sp1}__v__{sp2}.tsv")
+        if not os.path.exists(of_pair_path):
+            of_pair_path = os.path.join(orthofinder_dir, f"Orthologues_{sp2}", f"{sp2}__v__{sp1}.tsv")
+        
+        of_pre = None
+        of_post = None
+        
+        if os.path.exists(of_pair_path):
+            of_pair_df = pd.read_csv(of_pair_path, sep='\t')
+            sp_cols = [c for c in of_pair_df.columns if c != 'Orthogroup']
+            of_pre = len(of_pair_df)
+            of_post = sum(
+                1 for _, row in of_pair_df.iterrows()
+                if not any(',' in str(row[c]) for c in sp_cols if pd.notna(row[c]))
+            )
+        
+        mbh_pair_path = os.path.join(rbh_dir, f"Orthologues_{sp1}", f"{sp1}__v__{sp2}.tsv")
+        
+        mbh_count = None
+        if os.path.exists(mbh_pair_path):
+            mbh_pair_df = pd.read_csv(mbh_pair_path, sep='\t')
+            mbh_count = len(mbh_pair_df)
+        
+        pair_label = f"{sp1} vs {sp2}"
+        of_pre_str  = str(of_pre)    if of_pre    is not None else "N/A"
+        of_post_str = str(of_post)   if of_post   is not None else "N/A"
+        mbh_str     = str(mbh_count) if mbh_count is not None else "N/A"
+        
+        if of_post is not None and mbh_count is not None:
+            diff_str = f"{of_post - mbh_count:+d}"
+        else:
+            diff_str = "N/A"
+        
+        report_lines.append(
+            f"{pair_label:<28} "
+            f"{of_pre_str:>{col_width}} "
+            f"{of_post_str:>{col_width}} "
+            f"{mbh_str:>{col_width}} "
+            f"{diff_str:>{col_width}}"
+        )
+        pair_stats.append((pair_label, of_pre, of_post, mbh_count))
+    
+    valid_pairs = [
+        (l, pre, post, m) for l, pre, post, m in pair_stats
+        if pre is not None and post is not None and m is not None
+    ]
+    if valid_pairs:
+        avg_pre  = sum(pre  for _, pre,  _,    _ in valid_pairs) / len(valid_pairs)
+        avg_post = sum(post for _, _,    post, _ in valid_pairs) / len(valid_pairs)
+        avg_mbh  = sum(m    for _, _,    _,    m in valid_pairs) / len(valid_pairs)
+        avg_diff = avg_post - avg_mbh
+        report_lines.append("-" * len(header))
+        report_lines.append(
+            f"{'Average':<28} "
+            f"{avg_pre:>{col_width}.0f} "
+            f"{avg_post:>{col_width}.0f} "
+            f"{avg_mbh:>{col_width}.0f} "
+            f"{avg_diff:>+{col_width}.0f}"
+        )
+        report_lines.append("")
+        report_lines.append(
+            f"On average {avg_pre - avg_post:.0f} pairs per species pair are removed "
+            f"by post-filtering ({100*(avg_pre - avg_post)/avg_pre:.1f}% of OrthoFinder pairs)."
+        )
+        report_lines.append(
+            f"Post-filtering, OrthoFinder finds on average {avg_diff:.0f} more 1-to-1 "
+            f"pairs per species pair than RBH/MBH."
+        )
+    
+    # ===== SECTION 3: Species coverage =====
+    report_lines.append("")
+    report_lines.append("="*70)
+    report_lines.append("3. GENE FAMILY SPECIES COVERAGE")
+    report_lines.append("="*70)
+    report_lines.append("(How many gene families contain genes from exactly N species)")
+    report_lines.append("")
+    
+    n_species = len(species_list)
+    
+    if of_total_ogs and of_df is not None:
+        of_coverage = {i: 0 for i in range(1, n_species + 1)}
+        for _, row in of_df.iterrows():
+            count = sum(
+                1 for sp in species_list
+                if pd.notna(row.get(sp)) and str(row.get(sp, '')).strip() != ''
+            )
+            if count in of_coverage:
+                of_coverage[count] += 1
+        
+        report_lines.append("OrthoFinder:")
+        for n, count in sorted(of_coverage.items()):
+            pct = 100 * count / of_total_ogs
+            report_lines.append(f"  Present in {n}/{n_species} species: {count:>6} orthogroups ({pct:.1f}%)")
+    
+    if mbh_total_ogs and mbh_df is not None:
+        mbh_coverage = {i: 0 for i in range(1, n_species + 1)}
+        for _, row in mbh_df.iterrows():
+            count = sum(
+                1 for sp in species_list
+                if pd.notna(row.get(sp)) and str(row.get(sp, '')).strip() != ''
+            )
+            if count in mbh_coverage:
+                mbh_coverage[count] += 1
+        
+        report_lines.append("\nRBH/MBH:")
+        for n, count in sorted(mbh_coverage.items()):
+            pct = 100 * count / mbh_total_ogs
+            report_lines.append(f"  Present in {n}/{n_species} species: {count:>6} gene families ({pct:.1f}%)")
+    
+    # ===== Write report =====
+    report_text = "\n".join(report_lines)
+    print(report_text)
+    
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'w') as f:
+        f.write(report_text)
+    
+    print(f"\n✅ Comparison report saved to: {output_path}")
+    
+    return {
+        'of_total_ogs': of_total_ogs,
+        'of_single_copy_ogs': of_single_copy_ogs,
+        'of_single_species_ogs': of_single_species_ogs,
+        'mbh_total_ogs': mbh_total_ogs,
+        'pair_stats': pair_stats
+    }
 
 ## Orthofinder Results (1-1 Orthologues) Parsing
 
@@ -1303,6 +1557,439 @@ def fishers_multi(species_maps, species_names, alpha=0.01, min_matches=False):
     
     return multi_filtered_map
 
+
+## Fisher's for OGs
+
+def create_comparison_map_shared_ogs(species1_name, species2_name,
+                                      orthogroups_tsv_path, tsv_dir):
+    """
+    Create an expanded comparison map using shared orthogroup membership
+    instead of strict 1-to-1 ortholog pairs. For each OG present in both
+    species, genes are paired positionally up to min(count_spA, count_spB).
+
+    Unlike create_comparison_map which only includes genes with inferred
+    1-to-1 ortholog pairs, this function includes ALL genes that share an
+    orthogroup with at least one gene in the other species, read directly
+    from the coordinate TSV files.
+
+    This is the shared-OG equivalent of create_comparison_map and is used
+    as input to fishers_shared_ogs, exactly as create_comparison_map is used
+    as input to fishers.
+
+    Parameters:
+    -----------
+    species1_name : str
+        Species 1 ID
+    species2_name : str
+        Species 2 ID
+    orthogroups_tsv_path : str
+        Path to OrthoFinder's Orthogroups/Orthogroups.tsv
+    tsv_dir : str
+        Directory containing {species}.tsv coordinate files
+
+    Returns:
+    --------
+    comparison_map : dict
+        Expanded comparison map keyed by OG_ID.N
+        Format identical to create_comparison_map output:
+        {og_key: [(species1_name, chrom, pos_idx), (species2_name, chrom, pos_idx)]}
+    """
+
+    og_df = pd.read_csv(orthogroups_tsv_path, sep='\t', index_col=0)
+
+    if species1_name not in og_df.columns:
+        raise ValueError(f"Species '{species1_name}' not found in Orthogroups.tsv")
+    if species2_name not in og_df.columns:
+        raise ValueError(f"Species '{species2_name}' not found in Orthogroups.tsv")
+
+    def get_gene_list(val):
+        if pd.isna(val) or str(val).strip() == '':
+            return []
+        return [g.strip() for g in str(val).split(',')]
+
+    # Build protein -> (species, chrom, pos_idx) lookup directly from
+    # coordinate TSVs so ALL genes are included, not just 1-to-1 pairs
+    def build_protein_lookup(species_name):
+        tsv_path = os.path.join(tsv_dir, f"{species_name}.tsv")
+        if not os.path.exists(tsv_path):
+            raise FileNotFoundError(f"TSV file not found: {tsv_path}")
+
+        df = pd.read_csv(tsv_path, sep='\t')
+
+        chrom_proteins = defaultdict(list)
+        for _, row in df.iterrows():
+            chrom_proteins[str(row['Chr/Scaffold'])].append(
+                (int(row['Start']), str(row['ProteinID']))
+            )
+        for chrom in chrom_proteins:
+            chrom_proteins[chrom].sort(key=lambda x: x[0])
+
+        protein_to_pos = {}
+        for chrom, proteins in chrom_proteins.items():
+            for pos_idx, (start, protein_id) in enumerate(proteins):
+                protein_to_pos[protein_id] = (species_name, chrom, pos_idx)
+
+        return protein_to_pos
+
+    sp1_protein_to_pos = build_protein_lookup(species1_name)
+    sp2_protein_to_pos = build_protein_lookup(species2_name)
+
+    comparison_map = {}
+    pair_counter = defaultdict(int)
+
+    for og_id, row in og_df.iterrows():
+        sp1_genes = get_gene_list(row.get(species1_name, ''))
+        sp2_genes = get_gene_list(row.get(species2_name, ''))
+
+        if not sp1_genes or not sp2_genes:
+            continue
+
+        # Filter to genes present in our coordinate TSVs
+        sp1_genes = [g for g in sp1_genes if g in sp1_protein_to_pos]
+        sp2_genes = [g for g in sp2_genes if g in sp2_protein_to_pos]
+
+        if not sp1_genes or not sp2_genes:
+            continue
+
+        # Sort by genomic position index
+        sp1_genes.sort(key=lambda g: sp1_protein_to_pos[g][2])
+        sp2_genes.sort(key=lambda g: sp2_protein_to_pos[g][2])
+
+        # Pair up to min(count_spA, count_spB)
+        n_pairs = min(len(sp1_genes), len(sp2_genes))
+        for k in range(n_pairs):
+            pair_counter[og_id] += 1
+            key = f"{og_id}.{pair_counter[og_id]}"
+            comparison_map[key] = [
+                sp1_protein_to_pos[sp1_genes[k]],
+                sp2_protein_to_pos[sp2_genes[k]]
+            ]
+
+    print(f"  Expanded comparison map size (shared OG mode): {len(comparison_map)}")
+    return comparison_map
+
+
+def fishers_shared_ogs(comparison_map_shared, species1_name, species2_name,
+                       orthogroups_tsv_path, alpha=0.01, min_matches=False,
+                       gene_filtering=False):
+    """
+    Shared-OG equivalent of fishers(). Takes an expanded comparison map
+    (output of create_comparison_map_shared_ogs) and runs Fisher's exact
+    test using shared OG counts for the contingency table.
+
+    The contingency table is built differently from fishers():
+    - A: sum of min(count_OG_chr1_spA, count_OG_chr1_spB) for OGs on both chromosomes
+    - B: genes on sp2_chr in OGs present elsewhere in sp1 but not on sp1_chr
+    - C: genes on sp1_chr in OGs present elsewhere in sp2 but not on sp2_chr
+    - N: sum of min(count_OG_spA, count_OG_spB) for all OGs shared genome-wide
+    - D: N - A - B - C
+
+    Parameters:
+    -----------
+    comparison_map_shared : dict
+        Output of create_comparison_map_shared_ogs
+    species1_name : str
+        Species 1 ID
+    species2_name : str
+        Species 2 ID
+    orthogroups_tsv_path : str
+        Path to OrthoFinder's Orthogroups/Orthogroups.tsv
+    alpha : float
+        Significance threshold (default: 0.01)
+    min_matches : bool
+        If True, ensure every chromosome has at least one significant match
+    gene_filtering : bool
+        If True, return filtered comparison map instead of test results
+
+    Returns:
+    --------
+    If gene_filtering=False:
+        counts_df, results_df, significant_pairs
+    If gene_filtering=True:
+        filtered_map : dict (same format as comparison_map_shared but only
+                       entries from significant chromosome pairs)
+    """
+
+    # ===== STEP 1: Load Orthogroups.tsv for genome-wide OG counts =====
+    og_df = pd.read_csv(orthogroups_tsv_path, sep='\t', index_col=0)
+
+    def count_genes_in_cell(val):
+        if pd.isna(val) or str(val).strip() == '':
+            return 0
+        return len(str(val).split(', '))
+
+    og_sp1_total = {}
+    og_sp2_total = {}
+
+    for og_id, row in og_df.iterrows():
+        c1 = count_genes_in_cell(row.get(species1_name, ''))
+        c2 = count_genes_in_cell(row.get(species2_name, ''))
+        if c1 > 0:
+            og_sp1_total[og_id] = c1
+        if c2 > 0:
+            og_sp2_total[og_id] = c2
+
+    shared_ogs_genome = set(og_sp1_total.keys()) & set(og_sp2_total.keys())
+
+    total_N = sum(
+        min(og_sp1_total[og], og_sp2_total[og])
+        for og in shared_ogs_genome
+    )
+
+    print(f"\n{species1_name} vs {species2_name}")
+    print(f"  Shared OGs genome-wide: {len(shared_ogs_genome)}")
+    print(f"  Total N (sum of mins):  {total_N}")
+
+    # ===== STEP 2: Build per-chromosome OG counts from comparison map =====
+    # comparison_map_shared keys are like OG0000019.1, OG0000019.2 etc.
+    # Strip the suffix to get base OG ID
+    sp1_chrom_og_counts = defaultdict(lambda: defaultdict(int))
+    sp2_chrom_og_counts = defaultdict(lambda: defaultdict(int))
+
+    for og_key, positions in comparison_map_shared.items():
+        base_og = og_key.rsplit('.', 1)[0]
+        if base_og not in shared_ogs_genome:
+            continue
+        sp1_chrom = positions[0][1]
+        sp2_chrom = positions[1][1]
+        sp1_chrom_og_counts[sp1_chrom][base_og] += 1
+        sp2_chrom_og_counts[sp2_chrom][base_og] += 1
+
+    sp1_chroms = sorted(sp1_chrom_og_counts.keys(), key=chrom_sort_key)
+    sp2_chroms = sorted(sp2_chrom_og_counts.keys(), key=chrom_sort_key)
+
+    # ===== STEP 3: Build contingency tables and run Fisher's test =====
+    results = []
+
+    for sp1_chr in sp1_chroms:
+        sp1_og_counts = sp1_chrom_og_counts[sp1_chr]
+        sp1_chr_shared_ogs = {
+            og: cnt for og, cnt in sp1_og_counts.items()
+            if og in shared_ogs_genome
+        }
+
+        for sp2_chr in sp2_chroms:
+            sp2_og_counts = sp2_chrom_og_counts[sp2_chr]
+            sp2_chr_shared_ogs = {
+                og: cnt for og, cnt in sp2_og_counts.items()
+                if og in shared_ogs_genome
+            }
+
+            both_chrs_ogs = set(sp1_chr_shared_ogs.keys()) & set(sp2_chr_shared_ogs.keys())
+
+            a = sum(
+                min(sp1_chr_shared_ogs[og], sp2_chr_shared_ogs[og])
+                for og in both_chrs_ogs
+            )
+            b = sum(
+                cnt for og, cnt in sp2_chr_shared_ogs.items()
+                if og not in sp1_chr_shared_ogs
+            )
+            c = sum(
+                cnt for og, cnt in sp1_chr_shared_ogs.items()
+                if og not in sp2_chr_shared_ogs
+            )
+            d = total_N - a - b - c
+
+            if d < 0:
+                print(f"  WARNING: D < 0 for {sp1_chr} vs {sp2_chr} "
+                      f"(A={a}, B={b}, C={c}, N={total_N}). Skipping.")
+                continue
+
+            if a + b + c + d == 0:
+                continue
+
+            table = [[a, b], [c, d]]
+            odds_ratio, p_value = fisher_exact(table, alternative='greater')
+
+            results.append({
+                'sp1_chr': sp1_chr,
+                'sp2_chr': sp2_chr,
+                'a': a, 'b': b, 'c': c, 'd': d,
+                'odds_ratio': odds_ratio,
+                'p_value': p_value
+            })
+
+    # ===== STEP 4: Multiple testing correction =====
+    results_df = pd.DataFrame(results)
+
+    if results_df.empty:
+        print(f"  WARNING: No valid chromosome pairs found for "
+              f"{species1_name} vs {species2_name}")
+        if gene_filtering:
+            return {}
+        return pd.DataFrame(), results_df, []
+
+    n_tests = len(results_df)
+    results_df['corrected_p'] = (results_df['p_value'] * n_tests).clip(upper=1.0)
+    results_df['significant'] = results_df['corrected_p'] < alpha
+    results_df = results_df.sort_values('corrected_p')
+
+    significant_pairs = [
+        (row['sp1_chr'], row['sp2_chr'], row['a'], row['p_value'], row['corrected_p'])
+        for _, row in results_df.iterrows()
+        if row['significant']
+    ]
+
+    counts_df = pd.DataFrame(index=sp1_chroms, columns=sp2_chroms, dtype=int).fillna(0)
+    for res in results:
+        counts_df.loc[res['sp1_chr'], res['sp2_chr']] = res['a']
+
+    print(f"  Significant chromosome pairs: {len(significant_pairs)}")
+
+    # ===== STEP 5: min_matches fallback =====
+    if min_matches:
+        sp1_chroms_with_matches = set(pair[0] for pair in significant_pairs)
+        sp2_chroms_with_matches = set(pair[1] for pair in significant_pairs)
+        sp1_chroms_without = set(sp1_chroms) - sp1_chroms_with_matches
+        sp2_chroms_without = set(sp2_chroms) - sp2_chroms_with_matches
+
+        additional_pairs = []
+        for chrom in sp1_chroms_without:
+            best = results_df[results_df['sp1_chr'] == chrom].iloc[0]
+            additional_pairs.append((
+                best['sp1_chr'], best['sp2_chr'], best['a'],
+                best['p_value'], best['corrected_p']
+            ))
+        for chrom in sp2_chroms_without:
+            best = results_df[results_df['sp2_chr'] == chrom].iloc[0]
+            pair = (best['sp1_chr'], best['sp2_chr'], best['a'],
+                    best['p_value'], best['corrected_p'])
+            if pair not in significant_pairs and pair not in additional_pairs:
+                additional_pairs.append(pair)
+
+        significant_pairs = significant_pairs + additional_pairs
+
+    # ===== STEP 6: gene_filtering =====
+    if gene_filtering:
+        significant_set = {
+            (sp1_chr, sp2_chr)
+            for sp1_chr, sp2_chr, _, _, _ in significant_pairs
+        }
+        filtered_map = {
+            og_key: positions
+            for og_key, positions in comparison_map_shared.items()
+            if (positions[0][1], positions[1][1]) in significant_set
+        }
+        print(f"  Filtered map size (shared OG mode): {len(filtered_map)}")
+        return filtered_map
+
+    return counts_df, results_df, significant_pairs
+
+
+def fishers_multi_shared_ogs(species_names, orthogroups_tsv_path, tsv_dir,
+                              alpha=0.01, min_matches=False):
+    """
+    Multi-species shared-OG equivalent of fishers_multi. Builds expanded
+    comparison maps for all species pairs and runs shared-OG Fisher's test,
+    producing the same output format as fishers_multi for use in ALG
+    discovery and multi-ribbon plots.
+
+    Parameters:
+    -----------
+    species_names : list of str
+        Species IDs in same order as species_maps
+    orthogroups_tsv_path : str
+        Path to OrthoFinder's Orthogroups/Orthogroups.tsv
+    tsv_dir : str
+        Directory containing {species}.tsv coordinate files. Used by
+        create_comparison_map_shared_ogs to build protein-to-position
+        lookups for all genes, not just 1-to-1 ortholog pairs.
+    alpha : float
+        Significance threshold (default: 0.01)
+    min_matches : bool
+        Ensure every chromosome has at least one significant match
+
+    Returns:
+    --------
+    multi_filtered_map : dict
+        Same format as fishers_multi output:
+        {og_key: {'positions': [...], 'significant_segments': [(i,j), ...]}}
+    """
+    n_species = len(species_names)
+
+    print(f"\n{'='*60}")
+    print(f"MULTI-SPECIES FISHER'S TEST - SHARED OG MODE (ALL PAIRS)")
+    print(f"{'='*60}")
+
+    all_pairs = list(itertools.combinations(range(n_species), 2))
+    pairwise_filtered_maps = {}
+
+    for i, j in all_pairs:
+        sp1_name = species_names[i]
+        sp2_name = species_names[j]
+
+        print(f"\n--- {sp1_name} vs {sp2_name} ---")
+
+        comparison_map_shared = create_comparison_map_shared_ogs(
+            species1_name=sp1_name,
+            species2_name=sp2_name,
+            orthogroups_tsv_path=orthogroups_tsv_path,
+            tsv_dir=tsv_dir
+        )
+
+        filtered_map = fishers_shared_ogs(
+            comparison_map_shared=comparison_map_shared,
+            species1_name=sp1_name,
+            species2_name=sp2_name,
+            orthogroups_tsv_path=orthogroups_tsv_path,
+            alpha=alpha,
+            min_matches=min_matches,
+            gene_filtering=True
+        )
+
+        pairwise_filtered_maps[(i, j)] = filtered_map
+        print(f"  Significant OG entries: {len(filtered_map)}")
+
+    # Collect all unique og_keys across all pairs
+    all_og_keys = set()
+    for filtered_map in pairwise_filtered_maps.values():
+        all_og_keys.update(filtered_map.keys())
+
+    print(f"\n{'='*60}")
+    print(f"BUILDING MULTI-SPECIES MAP (SHARED OG MODE)")
+    print(f"{'='*60}")
+    print(f"Total unique OG entries: {len(all_og_keys)}")
+
+    # Build position lookup per species from pairwise filtered maps
+    og_key_positions_by_species = defaultdict(dict)
+    for (i, j), filtered_map in pairwise_filtered_maps.items():
+        for og_key, positions in filtered_map.items():
+            og_key_positions_by_species[og_key][species_names[i]] = positions[0]
+            og_key_positions_by_species[og_key][species_names[j]] = positions[1]
+
+    # Build final multi-species filtered map
+    multi_filtered_map = {}
+
+    for og_key in all_og_keys:
+        positions = [
+            og_key_positions_by_species[og_key].get(sp_name, None)
+            for sp_name in species_names
+        ]
+
+        significant_segments = [
+            (i, j) for i, j in all_pairs
+            if og_key in pairwise_filtered_maps.get((i, j), {})
+            and positions[i] is not None
+            and positions[j] is not None
+        ]
+
+        if significant_segments:
+            multi_filtered_map[og_key] = {
+                'positions': positions,
+                'significant_segments': significant_segments
+            }
+
+    print(f"Total entries in multi-species map: {len(multi_filtered_map)}")
+    for i, j in all_pairs:
+        count = sum(
+            1 for data in multi_filtered_map.values()
+            if (i, j) in data['significant_segments']
+        )
+        print(f"  {species_names[i]} - {species_names[j]}: {count} entries")
+
+    return multi_filtered_map
+
 ## Create Color Mapping for up to 30 Distinct Chromosomes for Dot Plots and Ribbon Plots 
 
 custom_colors = [
@@ -1383,10 +2070,110 @@ custom_colors = [
     "#EE1289",  # 70. DeepPink 2      (close to Pink/Magenta family)
 ]
 
+# Color palette combining Wong (2011) / Okabe-Ito + Paul Tol's bright, vibrant and muted schemes
+# All certified colorblind-safe. Sources:
+# - Wong B. Nature Methods 8, 441 (2011) - doi:10.1038/nmeth.1618
+# - Tol P. SRON Technical Note SRON/EPS/TN/09-002 (2021)
+# - Okabe M. & Ito K. Color Universal Design (CUD) - https://jfly.uni-koeln.de/color/
+
+custom_colors_cb = [
+    # ===== Okabe-Ito / Wong (2011) - 8 colors =====
+    "#E69F00",  # 1.  Orange
+    "#56B4E9",  # 2.  Sky Blue
+    "#009E73",  # 3.  Bluish Green
+    "#F0E442",  # 4.  Yellow
+    "#0072B2",  # 5.  Blue
+    "#D55E00",  # 6.  Vermillion
+    "#CC79A7",  # 7.  Reddish Purple
+    "#000000",  # 8.  Black
+
+    # ===== Paul Tol Bright - 7 colors =====
+    "#4477AA",  # 9.  Blue
+    "#66CCEE",  # 10. Cyan
+    "#228833",  # 11. Green
+    "#CCBB44",  # 12. Yellow
+    "#EE6677",  # 13. Red
+    "#AA3377",  # 14. Purple
+    "#BBBBBB",  # 15. Grey
+
+    # ===== Paul Tol Vibrant - 7 colors =====
+    "#0077BB",  # 16. Blue
+    "#33BBEE",  # 17. Cyan
+    "#009988",  # 18. Teal
+    "#EE7733",  # 19. Orange
+    "#CC3311",  # 20. Red
+    "#EE3377",  # 21. Magenta
+    "#BBBBBB",  # 22. Grey (skip duplicate, use below)
+
+    # ===== Paul Tol Muted - 9 colors =====
+    "#332288",  # 23. Indigo
+    "#88CCEE",  # 24. Cyan
+    "#44AA99",  # 25. Teal
+    "#117733",  # 26. Green
+    "#999933",  # 27. Olive
+    "#DDCC77",  # 28. Sand
+    "#CC6677",  # 29. Rose
+    "#882255",  # 30. Wine
+    "#AA4499",  # 31. Purple
+
+    # ===== Paul Tol High Contrast - 3 colors =====
+    "#004488",  # 32. Blue
+    "#DDAA33",  # 33. Yellow
+    "#BB5566",  # 34. Red
+
+    # ===== Second pass - lightened/darkened variants of above for more colors =====
+    # Lightened Okabe-Ito
+    "#F5C97A",  # 35. Light Orange
+    "#A8D8F0",  # 36. Light Sky Blue
+    "#66C2A8",  # 37. Light Bluish Green
+    "#F7F0A0",  # 38. Light Yellow
+    "#6BAED6",  # 39. Light Blue
+    "#F4956A",  # 40. Light Vermillion
+    "#DDA9C8",  # 41. Light Reddish Purple
+
+    # Darkened Okabe-Ito
+    "#A05E00",  # 42. Dark Orange
+    "#1A6B8A",  # 43. Dark Sky Blue
+    "#005C42",  # 44. Dark Bluish Green
+    "#8A7F00",  # 45. Dark Yellow
+    "#003D6B",  # 46. Dark Blue
+    "#7A3500",  # 47. Dark Vermillion
+    "#6B3A55",  # 48. Dark Reddish Purple
+
+    # Lightened Tol Bright
+    "#A0BBD4",  # 49. Light Tol Blue
+    "#B3E6F7",  # 50. Light Tol Cyan
+    "#8FC79A",  # 51. Light Tol Green
+    "#E5DDA2",  # 52. Light Tol Yellow
+    "#F4B3BC",  # 53. Light Tol Red
+    "#D499BB",  # 54. Light Tol Purple
+
+    # Darkened Tol Muted
+    "#1E1550",  # 55. Dark Indigo
+    "#3A7A8A",  # 56. Dark Tol Cyan
+    "#226655",  # 57. Dark Teal
+    "#0A4420",  # 58. Dark Green
+    "#555520",  # 59. Dark Olive
+    "#8A7A40",  # 60. Dark Sand
+    "#7A3340",  # 61. Dark Rose
+    "#4A1030",  # 62. Dark Wine
+    "#5A2255",  # 63. Dark Purple
+
+    # Mixed remaining
+    "#6699CC",  # 64. Tol Light Blue
+    "#AACCBB",  # 65. Tol Pale Teal
+    "#EEBB88",  # 66. Tol Pale Orange
+    "#FFAABB",  # 67. Tol Pale Red
+    "#BBCCEE",  # 68. Tol Pale Blue
+    "#CCEEFF",  # 69. Tol Pale Cyan
+    "#CCDDAA",  # 70. Tol Pale Green
+]
+
 ## Dot Plot Creation
 
 def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, species1, species2, 
-                          figsize=(15, 15), dot_size=1, dot_alpha=0.5, default_color='#909090'):
+                          figsize=(15, 15), dot_size=1, dot_alpha=0.5, default_color='#444444',
+                          color_nonsignificant=False, color_palette=None):
     """
     Create a synteny dot plot showing ortholog positions between two species.
     Chromosomes are scaled by their actual genomic length, but axes show cumulative gene counts.
@@ -1403,11 +2190,11 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
         Dictionary with chromosome as key and list of gene tuples as values for species 2
         Each tuple contains (OG_ID, protein_ID, start, end)
     significant_pairs : list
-        List of tuples (sp1_chr, sp2_chr, count) from Fisher's exact test
+        List of tuples (sp1_chr, sp2_chr, count, p_val, corrected_p) from Fisher's exact test
     species1 : str
-        species 1 name
+        Species 1 name
     species2 : str
-        species 2 name
+        Species 2 name
     figsize : tuple
         Figure size (default: (15, 15))
     dot_size : float
@@ -1415,8 +2202,15 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
     dot_alpha : float
         Transparency of dots (default: 0.5)
     default_color : str
-        Color for non-significant dots (default: 'lightgray')
+        Color for non-significant dots (default: '#444444' dark grey)
+    color_nonsignificant : bool
+        If True, color non-significant dots with their chromosome color instead
+        of default_color (default: False)
+    color_palette : list
+        List of colors to use for the plot (default: None)
     """
+    
+    palette = color_palette if color_palette is not None else custom_colors
     
     # Extract data for each species
     data = []
@@ -1444,18 +2238,22 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
         if chrom in sp1_map:
             max_end = max(gene[3] for gene in sp1_map[chrom])
             sp1_chrom_lengths[chrom] = max_end
+        else:
+            sp1_chrom_lengths[chrom] = max(d[1] for d in data if d[0] == chrom)
 
     sp2_chrom_lengths = {}
     for chrom in sp2_chroms:
         if chrom in sp2_map:
             max_end = max(gene[3] for gene in sp2_map[chrom])
             sp2_chrom_lengths[chrom] = max_end
+        else:
+            sp2_chrom_lengths[chrom] = max(d[3] for d in data if d[2] == chrom)
 
-    all_colors = np.array([plt.matplotlib.colors.to_rgba(c) for c in custom_colors])
+    all_colors = np.array([plt.matplotlib.colors.to_rgba(c) for c in palette])
     
     chrom_to_color = {}
     for idx, chrom in enumerate(sp1_chroms):
-        chrom_to_color[chrom] = all_colors[idx % len(custom_colors)]
+        chrom_to_color[chrom] = all_colors[idx % len(palette)]
     
     # Create set of significant pairs for fast lookup
     significant_set = set()
@@ -1507,14 +2305,11 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
     # Create the plot
     fig, ax = plt.subplots(figsize=figsize)
     
-    # Plot all orthologs
-    x_coords = []
-    y_coords = []
-    
     # Separate dots into significant and non-significant
     significant_dots = {chrom: {'x': [], 'y': []} for chrom in sp1_chroms}
     non_significant_x = []
     non_significant_y = []
+    non_significant_colors = []
     
     for sp1_chrom, sp1_pos, sp2_chrom, sp2_pos in data:
         # Map position within chromosome to proportional position in length space
@@ -1531,11 +2326,17 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
         else:
             non_significant_x.append(x)
             non_significant_y.append(y)
+            if color_nonsignificant:
+                non_significant_colors.append(chrom_to_color[sp1_chrom])
     
     # Plot non-significant dots first (so they're in the background)
     if non_significant_x:
-        ax.scatter(non_significant_x, non_significant_y, s=dot_size, alpha=dot_alpha/2, 
-                   c=default_color, rasterized=True, label='Non-significant')
+        if color_nonsignificant:
+            ax.scatter(non_significant_x, non_significant_y, s=dot_size, alpha=dot_alpha/2,
+                       c=non_significant_colors, rasterized=True, label='Non-significant')
+        else:
+            ax.scatter(non_significant_x, non_significant_y, s=dot_size, alpha=dot_alpha/2,
+                       c=default_color, rasterized=True, label='Non-significant')
     
     # Plot significant dots by chromosome (each with its own color)
     for chrom in sp1_chroms:
@@ -1555,20 +2356,16 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
         ax.axhline(sp2_cumulative_length[chrom], color='black', linewidth=0.5, alpha=0.5)
     
     # Set up tick marks showing cumulative gene counts
-    # Map gene count positions to length space for x-axis
     gene_tick_interval = 1000
     x_gene_ticks = list(range(0, sp1_total_genes + 1, gene_tick_interval))
     x_length_ticks = []
     x_labels = []
     
     for gene_count in x_gene_ticks:
-        # Find which chromosome this gene count falls into
-        current_chrom = None
         for chrom in sp1_chroms:
             chrom_start = sp1_cumulative_genes[chrom]
             chrom_end = chrom_start + sp1_gene_counts[chrom]
             if chrom_start <= gene_count <= chrom_end:
-                current_chrom = chrom
                 relative_pos = gene_count - chrom_start
                 fraction = relative_pos / sp1_gene_counts[chrom]
                 length_pos = sp1_cumulative_length[chrom] + fraction * sp1_chrom_lengths[chrom]
@@ -1576,7 +2373,6 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
                 x_labels.append(str(gene_count))
                 break
     
-    # Map gene count positions to length space for y-axis
     y_gene_ticks = list(range(0, sp2_total_genes + 1, gene_tick_interval))
     y_length_ticks = []
     y_labels = []
@@ -1602,7 +2398,6 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
     ax2 = ax.twiny()
     ax3 = ax.twinx()
     
-    # Calculate midpoints for chromosome labels based on length
     sp1_midpoints = [sp1_cumulative_length[chrom] + sp1_chrom_lengths[chrom]/2 for chrom in sp1_chroms]
     sp2_midpoints = [sp2_cumulative_length[chrom] + sp2_chrom_lengths[chrom]/2 for chrom in sp2_chroms]
     
@@ -1616,12 +2411,9 @@ def plot_synteny_dotplot(comparison_map, sp1_map, sp2_map, significant_pairs, sp
     ax3.set_yticklabels(sp2_chroms, fontsize=10)
     ax3.set_ylabel(f'{species2}', fontsize=12, fontweight='bold', rotation=270, labelpad=20)
     
-    # Label bottom and left axes
     ax.set_xlabel('Cumulative gene count', fontsize=10)
     ax.set_ylabel('Cumulative gene count', fontsize=10)
     
-    # Add light grid (optional)
-    #ax.grid(True, alpha=0.2, linewidth=0.5, linestyle='dotted')
     ax.grid(False)
     
     plt.tight_layout()
@@ -2035,86 +2827,71 @@ def identify_algs_for_cluster(cluster_species, species_maps, species_names,
 
 
 def compute_algs_full_pipeline(species_maps, species_names, fishers_multi_results,
-                                 similarity_threshold=0.15, min_orthologs=10):
+                                 similarity_threshold=0.3, min_orthologs=10,
+                                 cluster_species=True):
     """
-    Complete Ancestral Linkage Group (ALG) identification pipeline.
-    
-    Orchestrates the full ALG discovery workflow:
-    1. Computes pairwise synteny similarity between all species
-    2. Clusters species by synteny similarity
-    3. For each cluster, identifies ALGs by building and verifying
-       chromosome chains across all species in the cluster
-    
+    Complete ALG identification pipeline.
+
     Parameters:
     -----------
     species_maps : list of dict
-        List of physical chromosome maps for each species, in the same
-        order as species_names. Each map is the output of
-        synteny_map_creator: {chromosome: [(og_id, protein_id, start, end), ...]}
+        Physical chromosome maps for each species, in the same order as
+        species_names. Each map is the output of synteny_map_creator.
     species_names : list of str
         List of species IDs in the same order as species_maps.
-        Example: ['CLA', 'EMU', 'BFL', 'RES', 'HCA', 'BMI']
     fishers_multi_results : dict
-        Output of fishers_multi. Format:
-        {og_id: {'positions': [...], 'significant_segments': [(i,j), ...]}}
+        Output of fishers_multi or fishers_multi_shared_ogs.
     similarity_threshold : float
         Minimum synteny similarity for two species to be placed in the
-        same cluster (default: 0.15). Passed to cluster_species_by_synteny.
+        same cluster (default: 0.3). Only used when cluster_species=True.
     min_orthologs : int
-        Minimum number of significant orthologs required for a chromosome
-        pair to be considered a valid ALG link (default: 10). Passed to
-        precompute_significant_chrom_pairs.
-    
+        Minimum orthologs required to define a valid ALG link (default: 10).
+    cluster_species : bool
+        If True, group species into synteny clusters before ALG discovery
+        (default: True). If False, all species are treated as one cluster.
+
     Returns:
     --------
-    dict with the following keys:
-        'similarity_matrix' : np.ndarray
-            N x N pairwise synteny similarity matrix
-        'clusters' : dict
-            {cluster_id: [species_names]} grouping of species
-        'cluster_labels' : np.ndarray
-            Per-species cluster assignment array
-        'alg_assignments' : dict
-            Nested dict of ALG assignments per species per chromosome.
-            Format: {species: {chromosome: [alg_id, ...]}}
-            Example: {'CLA': {'CLA1': ['C2_ALG1'], 'CLA5': ['C2_ALG3', 'C2_ALG6']}}
-            ALG IDs are prefixed with cluster ID: C1_ALG1 = cluster 1, ALG 1
-        'clusters_info' : dict
-            {cluster_id: [species_names]} - identical to 'clusters',
-            kept separately for use by downstream plotting functions
+    dict with keys: 'similarity_matrix', 'clusters', 'cluster_labels',
+                    'alg_assignments', 'clusters_info'
     """
-    
+
     print("\n" + "="*70)
     print("ANCESTRAL LINKAGE GROUP (ALG) IDENTIFICATION")
     print("="*70)
-    
+
     similarity = compute_synteny_similarity(
         species_maps, species_names, fishers_multi_results
     )
-    
-    clusters, cluster_labels = cluster_species_by_synteny(
-        similarity, species_names, threshold=similarity_threshold
-    )
-    
+
+    if cluster_species:
+        clusters, cluster_labels = cluster_species_by_synteny(
+            similarity, species_names, threshold=similarity_threshold
+        )
+    else:
+        print("\nSkipping species clustering - treating all species as one group.")
+        clusters = {1: list(species_names)}
+        cluster_labels = np.ones(len(species_names), dtype=int)
+
     all_alg_assignments = {}
     all_clusters_info = {}
-    
-    for cluster_id, cluster_species in sorted(clusters.items()):
+
+    for cluster_id, cluster_species_list in sorted(clusters.items()):
         alg_assignments = identify_algs_for_cluster(
-            cluster_species, species_maps, species_names,
+            cluster_species_list, species_maps, species_names,
             fishers_multi_results, min_orthologs=min_orthologs
         )
-        
+
         for species, chrom_to_algs in alg_assignments.items():
             if species not in all_alg_assignments:
                 all_alg_assignments[species] = {}
-            
+
             for chrom, alg_list in chrom_to_algs.items():
                 prefixed_algs = [f"C{cluster_id}_ALG{alg}" for alg in alg_list]
                 all_alg_assignments[species][chrom] = prefixed_algs
-        
-        all_clusters_info[cluster_id] = cluster_species
-    
+
+        all_clusters_info[cluster_id] = cluster_species_list
+
     return {
         'similarity_matrix': similarity,
         'clusters': clusters,
@@ -2123,16 +2900,57 @@ def compute_algs_full_pipeline(species_maps, species_names, fishers_multi_result
         'clusters_info': all_clusters_info
     }
 
+def save_similarity_heatmap(similarity_matrix, species_names, output_path):
+    """
+    Save the pairwise synteny similarity matrix as a heatmap PNG.
+
+    Parameters:
+    -----------
+    similarity_matrix : np.ndarray
+        N x N symmetric matrix of pairwise synteny similarities
+    species_names : list of str
+        Species IDs in the same order as matrix rows/columns
+    output_path : str
+        Full path to save the PNG file
+    """
+
+    fig, ax = plt.subplots(figsize=(max(6, len(species_names)), max(5, len(species_names) - 1)))
+
+    sns.heatmap(
+        similarity_matrix,
+        annot=True,
+        fmt='.2f',
+        cmap='YlOrRd',
+        xticklabels=species_names,
+        yticklabels=species_names,
+        ax=ax,
+        square=True,
+        vmin=0,
+        vmax=1,
+        cbar_kws={'label': 'Synteny Similarity', 'shrink': 0.8}
+    )
+
+    ax.set_title('Pairwise Synteny Similarity Matrix', fontsize=14, fontweight='bold', pad=12)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=10)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"✅ Similarity heatmap saved to: {output_path}")    
+
 ## Ribbon Plot Creation
 
-def plot_synteny_ribbons(comparison_map, sp1_map, sp2_map, 
+def plot_synteny_ribbons(comparison_map, sp1_map, sp2_map,
                          species1='Species1', species2='Species2',
-                         figsize=(20, 12), ribbon_alpha=0.3, curve_style='bezier'):
+                         figsize=(20, 12), ribbon_alpha=0.3, curve_style='bezier',
+                         color_palette=None):
     """
     Create a synteny ribbon plot showing chromosome relationships between two species.
     Each ortholog pair is shown as an individual ribbon.
     Species 2 chromosomes are rearranged to maximize visual alignment with species 1.
-    
+
     Parameters:
     -----------
     comparison_map : dict
@@ -2151,181 +2969,203 @@ def plot_synteny_ribbons(comparison_map, sp1_map, sp2_map,
         Transparency of ribbons (default: 0.3)
     curve_style : str
         'bezier' for smooth curves, 'straight' for straight lines (default: 'bezier')
+    color_palette : list
+        List of colors to use for ribbons. If None, uses default palette.
     """
-    
-    # Bezier curve function
+
+    palette = color_palette if color_palette is not None else custom_colors
+
     def get_bezier_curve(x0, y0, x1, y1, n_points=100):
-        """Generate Bezier curve between two points."""
         if curve_style == 'straight':
             return [x0, x1], [y0, y1]
-        
-        # Control points at 1/3 and 2/3 of vertical distance
         cy0 = y0 - (y0 - y1) * 0.33
         cy1 = y0 - (y0 - y1) * 0.67
-        
         t = np.linspace(0, 1, n_points)
-        
-        # Cubic Bezier formula
         x = (1-t)**3 * x0 + 3*(1-t)**2*t * x0 + 3*(1-t)*t**2 * x1 + t**3 * x1
         y = (1-t)**3 * y0 + 3*(1-t)**2*t * cy0 + 3*(1-t)*t**2 * cy1 + t**3 * y1
-        
         return x, y
-    
-    # Get chromosome lengths
+
+    # ===== STEP 1: Build chromosome lengths =====
+    # Primary source: sp_map (built from 1-to-1 pairs, has actual genomic coordinates)
     sp1_chrom_lengths = {}
     for chrom, genes in sp1_map.items():
-        max_end = max(gene[3] for gene in genes)
-        sp1_chrom_lengths[chrom] = max_end
-    
+        sp1_chrom_lengths[chrom] = max(gene[3] for gene in genes)
+
     sp2_chrom_lengths = {}
     for chrom, genes in sp2_map.items():
-        max_end = max(gene[3] for gene in genes)
-        sp2_chrom_lengths[chrom] = max_end
-    
-    # Get sorted chromosomes that have orthologs
-    sp1_chroms_with_orthologs = sorted(set(v[0][1] for v in comparison_map.values()), key=chrom_sort_key)
-    sp2_chroms_with_orthologs = sorted(set(v[1][1] for v in comparison_map.values()), key=chrom_sort_key)
-    
-    # Filter to only chromosomes with orthologs
+        sp2_chrom_lengths[chrom] = max(gene[3] for gene in genes)
+
+    # Secondary source: comparison_map position indices for chromosomes missing from
+    # sp_map (can happen in shared-OG mode where comparison_map includes extra genes)
+    sp1_chrom_max_pos = defaultdict(int)
+    sp2_chrom_max_pos = defaultdict(int)
+    for og_id, orthologs in comparison_map.items():
+        sp1_chrom = orthologs[0][1]
+        sp2_chrom = orthologs[1][1]
+        sp1_chrom_max_pos[sp1_chrom] = max(sp1_chrom_max_pos[sp1_chrom], orthologs[0][2])
+        sp2_chrom_max_pos[sp2_chrom] = max(sp2_chrom_max_pos[sp2_chrom], orthologs[1][2])
+
+    for chrom, max_pos in sp1_chrom_max_pos.items():
+        if chrom not in sp1_chrom_lengths:
+            sp1_chrom_lengths[chrom] = max_pos if max_pos > 0 else 1
+
+    for chrom, max_pos in sp2_chrom_max_pos.items():
+        if chrom not in sp2_chrom_lengths:
+            sp2_chrom_lengths[chrom] = max_pos if max_pos > 0 else 1
+
+    # ===== STEP 2: Get chromosomes present in comparison map =====
+    sp1_chroms_with_orthologs = sorted(
+        set(v[0][1] for v in comparison_map.values()), key=chrom_sort_key
+    )
+    sp2_chroms_with_orthologs = sorted(
+        set(v[1][1] for v in comparison_map.values()), key=chrom_sort_key
+    )
+
     sp1_chroms = [c for c in sp1_chroms_with_orthologs if c in sp1_chrom_lengths]
     sp2_chroms_unsorted = [c for c in sp2_chroms_with_orthologs if c in sp2_chrom_lengths]
-    
-    # Count orthologs between each chromosome pair
+
+    # ===== STEP 3: Build gene counts per chromosome =====
+    sp1_map_max_pos = defaultdict(int)
+    sp2_map_max_pos = defaultdict(int)
+    for og_id, orthologs in comparison_map.items():
+        sp1_chrom = orthologs[0][1]
+        sp2_chrom = orthologs[1][1]
+        sp1_map_max_pos[sp1_chrom] = max(sp1_map_max_pos[sp1_chrom], orthologs[0][2])
+        sp2_map_max_pos[sp2_chrom] = max(sp2_map_max_pos[sp2_chrom], orthologs[1][2])
+
+    sp1_gene_counts = {}
+    for chrom in sp1_chroms:
+        if chrom in sp1_map:
+            sp1_gene_counts[chrom] = max(
+                len(sp1_map[chrom]),
+                sp1_map_max_pos.get(chrom, 0) + 1
+            )
+        else:
+            sp1_gene_counts[chrom] = sp1_map_max_pos.get(chrom, 0) + 1
+
+    sp2_gene_counts = {}
+    for chrom in sp2_chroms_unsorted:
+        if chrom in sp2_map:
+            sp2_gene_counts[chrom] = max(
+                len(sp2_map[chrom]),
+                sp2_map_max_pos.get(chrom, 0) + 1
+            )
+        else:
+            sp2_gene_counts[chrom] = sp2_map_max_pos.get(chrom, 0) + 1
+
+    # ===== STEP 4: Count orthologs per chromosome pair for sp2 ordering =====
     chrom_pair_counts = defaultdict(int)
     for og_id, orthologs in comparison_map.items():
         sp1_chrom = orthologs[0][1]
         sp2_chrom = orthologs[1][1]
         if sp1_chrom in sp1_chroms and sp2_chrom in sp2_chroms_unsorted:
             chrom_pair_counts[(sp1_chrom, sp2_chrom)] += 1
-    
-    # Rearrange sp2 chromosomes for better alignment
+
+    # ===== STEP 5: Rearrange sp2 chromosomes for better alignment =====
     sp2_chroms = []
     used_sp2_chroms = set()
-    
+
     for sp1_chrom in sp1_chroms:
-        matches = [(sp2_chrom, chrom_pair_counts[(sp1_chrom, sp2_chrom)]) 
-                   for sp2_chrom in sp2_chroms_unsorted 
-                   if sp2_chrom not in used_sp2_chroms]
+        matches = [
+            (sp2_chrom, chrom_pair_counts[(sp1_chrom, sp2_chrom)])
+            for sp2_chrom in sp2_chroms_unsorted
+            if sp2_chrom not in used_sp2_chroms
+        ]
         matches.sort(key=lambda x: x[1], reverse=True)
-        
+
         for sp2_chrom, count in matches:
             if sp2_chrom not in used_sp2_chroms:
                 sp2_chroms.append(sp2_chrom)
                 used_sp2_chroms.add(sp2_chrom)
                 print(f"Aligned {species1} {sp1_chrom} with {species2} {sp2_chrom} ({count} orthologs)")
                 break
-    
-    # Add any remaining sp2 chromosomes that weren't matched
+
     for sp2_chrom in sp2_chroms_unsorted:
         if sp2_chrom not in used_sp2_chroms:
             sp2_chroms.append(sp2_chrom)
             print(f"Added unmatched {species2} {sp2_chrom} at end")
-    
-    # Map chromosomes to colors (for ribbons only)
+
+    # ===== STEP 6: Assign colors to sp1 chromosomes =====
     sp1_chrom_to_color = {}
     for idx, chrom in enumerate(sp1_chroms):
-        sp1_chrom_to_color[chrom] = custom_colors[idx % len(custom_colors)]
-    
-    # Calculate total genome lengths
+        sp1_chrom_to_color[chrom] = palette[idx % len(palette)]
+
+    # ===== STEP 7: Calculate cumulative positions =====
+    standard_length = 1000000
+    gap_size = standard_length * 0.005
+
     sp1_total_length = sum(sp1_chrom_lengths[c] for c in sp1_chroms)
     sp2_total_length = sum(sp2_chrom_lengths[c] for c in sp2_chroms)
 
-    # Use a standard horizontal length
-    standard_length = 1000000
-    gap_size = standard_length * 0.005  # Small gap (0.5% of total length)
-
-    # Calculate cumulative positions for species 1 (top) with gaps
     sp1_cumulative = {}
     cumsum = 0
     for chrom in sp1_chroms:
         sp1_cumulative[chrom] = cumsum
         cumsum += (sp1_chrom_lengths[chrom] / sp1_total_length) * standard_length
-        cumsum += gap_size  # Add gap after each chromosome
+        cumsum += gap_size
 
-    # Calculate cumulative positions for species 2 (bottom) with gaps
     sp2_cumulative = {}
     cumsum = 0
     for chrom in sp2_chroms:
         sp2_cumulative[chrom] = cumsum
         cumsum += (sp2_chrom_lengths[chrom] / sp2_total_length) * standard_length
-        cumsum += gap_size  # Add gap after each chromosome
-    
-    # Get gene counts per chromosome for positioning
-    sp1_gene_counts = {}
-    sp2_gene_counts = {}
-    
-    for chrom in sp1_chroms:
-        sp1_gene_counts[chrom] = len(sp1_map[chrom])
-    
-    for chrom in sp2_chroms:
-        sp2_gene_counts[chrom] = len(sp2_map[chrom])
-    
-    # Create plot
+        cumsum += gap_size
+
+    # ===== STEP 8: Draw ribbons =====
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Draw individual gene ribbons with Bezier curves
+
     for og_id, orthologs in comparison_map.items():
         sp1_chrom = orthologs[0][1]
         sp1_pos = orthologs[0][2]
         sp2_chrom = orthologs[1][1]
         sp2_pos = orthologs[1][2]
-        
-        if sp1_chrom in sp1_chroms and sp2_chrom in sp2_chroms and sp1_pos > 0 and sp2_pos > 0:
-            # Calculate normalized positions based on ordinal position
-            sp1_chrom_width = (sp1_chrom_lengths[sp1_chrom] / sp1_total_length) * standard_length
-            sp2_chrom_width = (sp2_chrom_lengths[sp2_chrom] / sp2_total_length) * standard_length
-            
-            # Position within chromosome as fraction
-            sp1_fraction = sp1_pos / sp1_gene_counts[sp1_chrom]
-            sp2_fraction = sp2_pos / sp2_gene_counts[sp2_chrom]
-            
-            # Calculate absolute position
-            sp1_x = sp1_cumulative[sp1_chrom] + sp1_fraction * sp1_chrom_width
-            sp2_x = sp2_cumulative[sp2_chrom] + sp2_fraction * sp2_chrom_width
-            
-            # Get Bezier curve points
-            curve_x, curve_y = get_bezier_curve(sp1_x, 1, sp2_x, 0)
-            
-            color = sp1_chrom_to_color[sp1_chrom]
-            ax.plot(curve_x, curve_y, 
-                   color=color, alpha=ribbon_alpha, linewidth=1.5, 
-                   solid_capstyle='round')
-    
-    # Draw chromosome lines for species 1 (top) - thin black lines
+
+        if sp1_chrom not in sp1_chroms or sp2_chrom not in sp2_chroms:
+            continue
+        if sp1_pos <= 0 or sp2_pos <= 0:
+            continue
+
+        sp1_chrom_width = (sp1_chrom_lengths[sp1_chrom] / sp1_total_length) * standard_length
+        sp2_chrom_width = (sp2_chrom_lengths[sp2_chrom] / sp2_total_length) * standard_length
+
+        sp1_fraction = sp1_pos / sp1_gene_counts[sp1_chrom]
+        sp2_fraction = sp2_pos / sp2_gene_counts[sp2_chrom]
+
+        sp1_x = sp1_cumulative[sp1_chrom] + sp1_fraction * sp1_chrom_width
+        sp2_x = sp2_cumulative[sp2_chrom] + sp2_fraction * sp2_chrom_width
+
+        curve_x, curve_y = get_bezier_curve(sp1_x, 1, sp2_x, 0)
+
+        color = sp1_chrom_to_color[sp1_chrom]
+        ax.plot(curve_x, curve_y,
+                color=color, alpha=ribbon_alpha, linewidth=1.5,
+                solid_capstyle='round')
+
+    # ===== STEP 9: Draw chromosome lines and labels =====
     for chrom in sp1_chroms:
         start = sp1_cumulative[chrom]
         width = (sp1_chrom_lengths[chrom] / sp1_total_length) * standard_length
-        
-        # Draw as simple black line
-        ax.plot([start, start + width], [1, 1], 
-               color='black', linewidth=3, solid_capstyle='butt')
-        
-        # Add chromosome labels
-        mid = start + width/2
-        ax.text(mid, 1 + 0.03, str(chrom), 
-               ha='center', va='bottom', fontsize=10, fontweight='bold')
-    
-    # Draw chromosome lines for species 2 (bottom) - thin black lines
+        ax.plot([start, start + width], [1, 1],
+                color='black', linewidth=3, solid_capstyle='butt')
+        mid = start + width / 2
+        ax.text(mid, 1 + 0.03, str(chrom),
+                ha='center', va='bottom', fontsize=10, fontweight='bold')
+
     for chrom in sp2_chroms:
         start = sp2_cumulative[chrom]
         width = (sp2_chrom_lengths[chrom] / sp2_total_length) * standard_length
-        
-        # Draw as simple black line
-        ax.plot([start, start + width], [0, 0], 
-               color='black', linewidth=3, solid_capstyle='butt')
-        
-        # Add chromosome labels
-        mid = start + width/2
+        ax.plot([start, start + width], [0, 0],
+                color='black', linewidth=3, solid_capstyle='butt')
+        mid = start + width / 2
         ax.text(mid, -0.03, str(chrom),
-               ha='center', va='top', fontsize=10, fontweight='bold')
-    
-    # Add species labels
-    ax.text(standard_length/2, 1.15, species1, ha='center', va='bottom', 
-           fontsize=14, fontweight='bold')
-    ax.text(standard_length/2, -0.15, species2, ha='center', va='top',
-           fontsize=14, fontweight='bold')
-    
-    # Set limits and clean up
+                ha='center', va='top', fontsize=10, fontweight='bold')
+
+    # ===== STEP 10: Species labels and final formatting =====
+    ax.text(standard_length / 2, 1.15, species1,
+            ha='center', va='bottom', fontsize=14, fontweight='bold')
+    ax.text(standard_length / 2, -0.15, species2,
+            ha='center', va='top', fontsize=14, fontweight='bold')
+
     max_x = max(
         max(
             sp1_cumulative[chrom] +
@@ -2342,13 +3182,13 @@ def plot_synteny_ribbons(comparison_map, sp1_map, sp2_map,
     ax.set_xlim(-standard_length * 0.05, max_x * 1.02)
     ax.set_ylim(-0.2, 1.2)
     ax.axis('off')
-    
+
     plt.tight_layout()
     return fig, ax
 
 def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
                                 alg_results=None, ribbon_alpha=0.3,
-                                figsize=(25, 15), curve_style='bezier'):
+                                figsize=(25, 15), curve_style='bezier', color_palette=None):
 
     """Create a multi-species synteny ribbon plot for N species.
 
@@ -2383,12 +3223,16 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
     curve_style : str
         'bezier' for smooth cubic Bezier curves, 'straight' for straight
         lines (default: 'bezier')
+    color_palette : list
+        List of colors to use for ribbons. If None, uses default palette.
 
     Returns:
     --------
     fig : matplotlib.figure.Figure
     ax : matplotlib.axes.Axes
     """
+    
+    palette = color_palette if color_palette is not None else custom_colors
     
     n_species = len(species_names)
 
@@ -2408,7 +3252,7 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
         alg_colors = {}
         if all_algs:
             for idx, alg in enumerate(sorted(all_algs)):
-                alg_colors[alg] = custom_colors[idx % len(custom_colors)]
+                alg_colors[alg] = palette[idx % len(palette)]
 
         def get_alg_for_segment(og_id, sp1_name, chrom1, sp2_name, chrom2):
             if sp1_name not in alg_assignments or sp2_name not in alg_assignments:
@@ -2527,7 +3371,7 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
     # ===== COLOR MAPPING FOR NON-ALG MODE =====
     sp1_chrom_to_color = {}
     for idx, chrom in enumerate(all_species_chroms[0]):
-        sp1_chrom_to_color[chrom] = custom_colors[idx % len(custom_colors)]
+        sp1_chrom_to_color[chrom] = palette[idx % len(palette)]
 
     # ===== NORMALIZED CUMULATIVE POSITIONS WITH GAPS =====
     standard_length = 1000000
@@ -2550,12 +3394,30 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
         species_cumulative.append(cumulative)
 
     # ===== GENE COUNTS =====
+    species_max_pos = [defaultdict(int) for _ in range(n_species)]
+    for og_id, data in filtered_map.items():
+        positions = data['positions']
+        for sp_idx, pos in enumerate(positions):
+            if pos is not None:
+                chrom = pos[1]
+                pos_idx = pos[2]
+                species_max_pos[sp_idx][chrom] = max(
+                    species_max_pos[sp_idx][chrom], pos_idx
+                )
+
     species_gene_counts = []
     for sp_idx in range(n_species):
         gene_counts = {}
         for chrom in all_species_chroms[sp_idx]:
             if chrom in species_maps[sp_idx]:
-                gene_counts[chrom] = len(species_maps[sp_idx][chrom])
+                # Use max of: actual map size OR max position seen in filtered_map
+                gene_counts[chrom] = max(
+                    len(species_maps[sp_idx][chrom]),
+                    species_max_pos[sp_idx].get(chrom, 0) + 1
+                )
+            else:
+                # Chromosome not in species_map (shared-OG mode)
+                gene_counts[chrom] = species_max_pos[sp_idx].get(chrom, 0) + 1
         species_gene_counts.append(gene_counts)
 
     # ===== BEZIER CURVE FUNCTION =====

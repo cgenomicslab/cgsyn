@@ -3,6 +3,13 @@ sys.path.insert(0, "workflow/scripts")
 from synteny import *
 import pickle
 
+if snakemake.params.get('shared_ogs', False):
+    raise ValueError(
+        "--shared-ogs is incompatible with RBH orthology inference. "
+        "RBH already produces strict 1-to-1 pairs by definition. "
+        "Please use --orthofinder with --shared-ogs."
+    )
+
 species_list = snakemake.params.species_list
 
 print(f"\n{'='*60}")
@@ -49,7 +56,19 @@ alg_results = compute_algs_full_pipeline(
     species_names=species_list,
     fishers_multi_results=filtered_map,
     similarity_threshold=snakemake.params.similarity_threshold,
-    min_orthologs=snakemake.params.min_orthologs
+    min_orthologs=snakemake.params.min_orthologs,
+    cluster_species=snakemake.params.cluster_species
+)
+
+# Save similarity heatmap
+heatmap_path = os.path.join(
+    os.path.dirname(snakemake.output.alg_results),
+    "synteny_similarity_heatmap.png"
+)
+save_similarity_heatmap(
+    similarity_matrix=alg_results['similarity_matrix'],
+    species_names=species_list,
+    output_path=heatmap_path
 )
 
 # Save results using pickle

@@ -14,7 +14,7 @@ sys.path.insert(0, "workflow/scripts")
 from synteny import *
 
 # Get all species and species pairs
-SPECIES = config["species"]
+SPECIES = config.get("species", [])
 SPECIES_PAIRS = list(itertools.combinations(SPECIES, 2))
 
 # Determine which outputs to generate based on config settings
@@ -75,6 +75,9 @@ def get_final_outputs():
     if config["run_ribbons_multi_rbh"]:
         outputs.append("results/ribbons_multi_rbh/multi_species_ribbon.png")
     
+    if config["run_compare_methods"]:
+        outputs.append("logs/orthology_comparison.txt")
+    
     if config["run_gene_analysis"]:
         outputs.append("results/gene_analysis/gene_families.tsv")
     
@@ -110,26 +113,33 @@ rule run_orthofinder:
         ortho_path = "results/orthofinder/orthologues_path.txt"
     params:
         proteome_dir = config["filtered_proteome_dir"],
+        species_list = SPECIES,
         threads = config["orthofinder"]["threads"],
-        aligner = config["orthofinder"]["aligner"]
+        aligner = config["orthofinder"]["aligner"],
+        inflation = config["orthofinder"].get("inflation", 1.2),
+        tree_method = config["orthofinder"].get("tree_method", "msa"),
+        msa_program = config["orthofinder"].get("msa_program", "famsa"),
+        tree_inference = config["orthofinder"].get("tree_inference", "fasttree")
     log:
         "logs/orthofinder.log"
-    shell:
-        """
-        python -c "
-import sys
-sys.path.insert(0, 'workflow/scripts')
-from synteny import run_orthofinder
-ortho_path = run_orthofinder(
-    filtered_prot_dir='{params.proteome_dir}',
-    num_threads={params.threads},
-    aligner='{params.aligner}',
-    output_dir='results/orthofinder'
-)
-with open('{output.ortho_path}', 'w') as f:
-    f.write(ortho_path)
-" > {log} 2>&1 && touch {output.done}
-        """
+    run:
+        import sys
+        sys.path.insert(0, "workflow/scripts")
+        from synteny import run_orthofinder
+        ortho_path = run_orthofinder(
+            filtered_prot_dir=params.proteome_dir,
+            species_list=params.species_list,
+            num_threads=params.threads,
+            aligner=params.aligner,
+            inflation=params.inflation,
+            tree_method=params.tree_method,
+            msa_program=params.msa_program,
+            tree_inference=params.tree_inference,
+            output_dir=str(output.done).replace("/done.txt", "")
+        )
+        with open(output.ortho_path, 'w') as f:
+            f.write(ortho_path)
+        open(output.done, 'w').close()
 
 rule orthofinder_dotplot:
     input:
@@ -147,7 +157,14 @@ rule orthofinder_dotplot:
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         dot_size = config["dotplot"]["dot_size"],
-        dot_alpha = config["dotplot"]["dot_alpha"]
+        dot_alpha = config["dotplot"]["dot_alpha"],
+        shared_ogs = config.get("shared_ogs", False),
+        orthogroups_tsv = lambda wildcards, input: os.path.join(
+            os.path.dirname(open(input.ortho_path).read().strip()),
+            "Orthogroups", "Orthogroups.tsv"
+        ),
+        color_nonsignificant = config["dotplot"].get("color_nonsignificant", False),
+        cb_colors = config.get("cb_colors", False)
     log:
         "logs/dotplot_orthofinder_{species1}_{species2}.log"
     script:
@@ -169,7 +186,13 @@ rule orthofinder_ribbon:
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         ribbon_alpha = config["ribbon"]["ribbon_alpha"],
-        curve_style = config["ribbon"]["curve_style"]
+        curve_style = config["ribbon"]["curve_style"],
+        shared_ogs = config.get("shared_ogs", False),
+        orthogroups_tsv = lambda wildcards, input: os.path.join(
+            os.path.dirname(open(input.ortho_path).read().strip()),
+            "Orthogroups", "Orthogroups.tsv"
+        ),
+        cb_colors = config.get("cb_colors", False)
     log:
         "logs/ribbon_orthofinder_{species1}_{species2}.log"
     script:
@@ -190,7 +213,14 @@ rule alg_discovery_orthofinder:
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
-        min_orthologs = config.get("alg", {}).get("min_orthologs", 10)
+        min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
+        shared_ogs = config.get("shared_ogs", False),
+        orthogroups_tsv = lambda wildcards, input: os.path.join(
+            os.path.dirname(open(input.ortho_path).read().strip()),
+            "Orthogroups", "Orthogroups.tsv"
+        ),
+        cluster_species = config.get("alg", {}).get("cluster_species", True),
+
     log:
         "logs/alg_discovery_orthofinder.log"
     script:
@@ -216,7 +246,15 @@ rule orthofinder_ribbons_multi:
         alg_results_path = "results/alg_orthofinder/alg_results.pkl",
         alg_summary_path = "results/alg_orthofinder/alg_summary.txt",
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
-        min_orthologs = config.get("alg", {}).get("min_orthologs", 10)
+        min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
+        shared_ogs = config.get("shared_ogs", False),
+        orthogroups_tsv = lambda wildcards, input: os.path.join(
+            os.path.dirname(open(input.ortho_path).read().strip()),
+            "Orthogroups", "Orthogroups.tsv"
+        ),
+        cb_colors = config.get("cb_colors", False),
+        cluster_species = config.get("alg", {}).get("cluster_species", True),
+        
     log:
         "logs/ribbons_multi_orthofinder.log"
     script:
@@ -273,7 +311,9 @@ rule rbh_dotplot:
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         dot_size = config["dotplot"]["dot_size"],
-        dot_alpha = config["dotplot"]["dot_alpha"]
+        dot_alpha = config["dotplot"]["dot_alpha"],
+        color_nonsignificant = config["dotplot"].get("color_nonsignificant", False),
+        cb_colors = config.get("cb_colors", False)
     log:
         "logs/dotplot_rbh_{species1}_{species2}.log"
     script:
@@ -294,7 +334,8 @@ rule rbh_ribbon:
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         ribbon_alpha = config["ribbon"]["ribbon_alpha"],
-        curve_style = config["ribbon"]["curve_style"]
+        curve_style = config["ribbon"]["curve_style"],
+        cb_colors = config.get("cb_colors", False)
     log:
         "logs/ribbon_rbh_{species1}_{species2}.log"
     script:
@@ -314,7 +355,8 @@ rule alg_discovery_rbh:
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
-        min_orthologs = config.get("alg", {}).get("min_orthologs", 10)
+        min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
+        cluster_species = config.get("alg", {}).get("cluster_species", True),
     log:
         "logs/alg_discovery_rbh.log"
     script:
@@ -339,11 +381,27 @@ rule rbh_ribbons_multi:
         alg_results_path = "results/alg_rbh/alg_results.pkl",
         alg_summary_path = "results/alg_rbh/alg_summary.txt",
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
-        min_orthologs = config.get("alg", {}).get("min_orthologs", 10)
+        min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
+        cb_colors = config.get("cb_colors", False),
+        cluster_species = config.get("alg", {}).get("cluster_species", True),
     log:
         "logs/ribbons_multi_rbh.log"
     script:
         "scripts/run_ribbons_multi_rbh.py"
+
+# ===== METHOD COMPARISON =====
+
+rule compare_methods:
+    output:
+        report = "logs/orthology_comparison.txt"
+    params:
+        species_list = SPECIES,
+        ortho_dir = "results/orthofinder/orthologues_path.txt",
+        rbh_dir = "results/rbh"
+    log:
+        "logs/compare_methods.log"
+    script:
+        "scripts/run_compare_methods.py"
 
 # ===== GENE ANALYSIS =====
 

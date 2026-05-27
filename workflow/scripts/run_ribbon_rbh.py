@@ -3,6 +3,15 @@ sys.path.insert(0, "workflow/scripts")
 from synteny import *
 import matplotlib.pyplot as plt
 
+color_palette = custom_colors_cb if snakemake.params.cb_colors else custom_colors
+
+if snakemake.params.get('shared_ogs', False):
+    raise ValueError(
+        "--shared-ogs is incompatible with RBH orthology inference. "
+        "RBH already produces strict 1-to-1 pairs by definition. "
+        "Please use --orthofinder with --shared-ogs."
+    )
+
 # Parse RBH data
 df = df_parsing(
     f"{snakemake.params.rbh_dir}/Orthologues_{snakemake.params.sp1}/{snakemake.params.sp1}__v__{snakemake.params.sp2}.tsv",
@@ -29,7 +38,8 @@ fig, ax = plot_synteny_ribbons(
     species1=snakemake.params.sp1,
     species2=snakemake.params.sp2,
     ribbon_alpha=snakemake.params.ribbon_alpha,
-    curve_style=snakemake.params.curve_style
+    curve_style=snakemake.params.curve_style,
+    color_palette=color_palette
 )
 
 plt.savefig(snakemake.output.plot, dpi=300, bbox_inches='tight')

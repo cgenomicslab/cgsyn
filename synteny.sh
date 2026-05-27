@@ -65,9 +65,20 @@ Workflow Control:
   --parse                         Run GFF/proteome parsing
   --no-parse                      Skip parsing (use existing intermediates)
   --orthofinder                   Run OrthoFinder
+  --inflation VALUE               MCL inflation parameter for OrthoFinder (default: 1.2)
+                                  Higher = more, smaller orthogroups
+                                  Lower  = fewer, larger orthogroups
+  --tree-method METHOD            Gene tree inference method (default: msa)
+                                  Options: msa, dendroblast
+  --msa-program PROGRAM           MSA program, only used with --tree-method msa (default: famsa)
+                                  Options: famsa, muscle, mafft
+  --tree-inference METHOD         Tree inference method, only used with --tree-method msa (default: fasttree)
+                                  Options: fasttree, fasttree_fastest, raxml, iqtree3
   --rbh                           Run RBH/MBH orthology inference
+  --compare-methods       	  Compare OrthoFinder vs RBH orthology inference results
   --dotplots-orthofinder          Generate Oxford dot plots from OrthoFinder
   --dotplots-rbh                  Generate Oxford dot plots from RBH
+  --color-nonsignificant          Color non-significant dots by chromosome instead of grey in dot plots
   --ribbons-orthofinder           Generate pairwise ribbon plots from OrthoFinder
   --ribbons-rbh                   Generate pairwise ribbon plots from RBH
   --ribbons-multi-orthofinder     Generate multi-species ribbon plot from OrthoFinder
@@ -78,6 +89,15 @@ Workflow Control:
                                   otherwise colored by first species chromosomes)
   --alg-discovery-orthofinder     Run ALG discovery using OrthoFinder results
   --alg-discovery-rbh             Run ALG discovery using RBH results
+  --no-cluster                    Treat all species as one group, skip synteny clustering
+  --similarity-threshold VALUE    Similarity threshold for species clustering (default: 0.3)
+                                  Species pairs below this threshold go into different clusters
+  --shared-ogs                    Use shared orthogroup counts instead of strict 1-to-1
+                                  ortholog pairs for Fisher's exact test. Increases
+                                  sensitivity for distantly related species. OrthoFinder
+                                  only - incompatible with --rbh.
+  --cb-colors                     Use colorblind-safe color palette for all plots
+                                  Based on Wong (2011) and Paul Tol's color schemes
   --gene-analysis                 Run anchor gene family analysis
 
 Species Selection:
@@ -150,9 +170,33 @@ while [[ $# -gt 0 ]]; do
             sed -i 's/run_rbh: .*/run_rbh: false/' "$TEMP_CONFIG"
             shift
             ;;
+        --inflation)
+            INFLATION="$2"
+            sed -i "s/inflation: .*/inflation: $INFLATION/" "$TEMP_CONFIG"
+            shift 2
+            ;;
+        --tree-method)
+            TREE_METHOD="$2"
+            sed -i "s/tree_method: .*/tree_method: \"$TREE_METHOD\"/" "$TEMP_CONFIG"
+            shift 2
+            ;;
+        --msa-program)
+            MSA_PROGRAM="$2"
+            sed -i "s/msa_program: .*/msa_program: \"$MSA_PROGRAM\"/" "$TEMP_CONFIG"
+            shift 2
+            ;;
+        --tree-inference)
+            TREE_INFERENCE="$2"
+            sed -i "s/tree_inference: .*/tree_inference: \"$TREE_INFERENCE\"/" "$TEMP_CONFIG"
+            shift 2
+            ;;
         --rbh)
             sed -i 's/run_rbh: .*/run_rbh: true/' "$TEMP_CONFIG"
             sed -i 's/run_orthofinder: .*/run_orthofinder: false/' "$TEMP_CONFIG"
+            shift
+            ;;
+        --compare-methods)
+            sed -i 's/run_compare_methods: .*/run_compare_methods: true/' "$TEMP_CONFIG"
             shift
             ;;
         --dotplots-orthofinder)
@@ -161,6 +205,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dotplots-rbh)
             sed -i 's/run_dotplots_rbh: .*/run_dotplots_rbh: true/' "$TEMP_CONFIG"
+            shift
+            ;;
+        --color-nonsignificant)
+            sed -i 's/color_nonsignificant: .*/color_nonsignificant: true/' "$TEMP_CONFIG"
             shift
             ;;
         --ribbons-orthofinder)
@@ -185,6 +233,23 @@ while [[ $# -gt 0 ]]; do
             ;;
         --ribbons-multi-rbh)
             sed -i 's/run_ribbons_multi_rbh: .*/run_ribbons_multi_rbh: true/' "$TEMP_CONFIG"
+            shift
+            ;;
+        --no-cluster)
+            sed -i 's/cluster_species: .*/cluster_species: false/' "$TEMP_CONFIG"
+            shift
+            ;;
+        --similarity-threshold)
+            SIM_THRESHOLD="$2"
+            sed -i "s/similarity_threshold: .*/similarity_threshold: $SIM_THRESHOLD/" "$TEMP_CONFIG"
+            shift 2
+            ;;
+        --shared-ogs)
+            sed -i 's/shared_ogs: .*/shared_ogs: true/' "$TEMP_CONFIG"
+            shift
+            ;;
+        --cb-colors)
+            sed -i 's/cb_colors: .*/cb_colors: true/' "$TEMP_CONFIG"
             shift
             ;;
         --gene-analysis)

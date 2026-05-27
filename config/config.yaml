@@ -1,5 +1,5 @@
 # Species and data paths
-species: []  # Set via --species flag or uncomment and edit
+# species: []  # Set via --species flag or uncomment and edit
 
 ## Resources paths
 gff_dir: "resources/gff"
@@ -13,6 +13,7 @@ tsv_dir: "intermediates/tsv"
 run_parsing: false
 run_orthofinder: false
 run_rbh: false
+run_compare_methods: false
 run_dotplots_orthofinder: false
 run_dotplots_rbh: false
 run_ribbons_orthofinder: false
@@ -21,12 +22,18 @@ run_alg_discovery_orthofinder: false
 run_alg_discovery_rbh: false
 run_ribbons_multi_orthofinder: false
 run_ribbons_multi_rbh: false
+shared_ogs: false
+cb_colors: false  # if true, use colorblind-safe palette for all plots
 run_gene_analysis: false
 
 # Orthofinder/RBH settings
 orthofinder:
-  aligner: "diamond"  # or "blast"
+  aligner: "diamond"         # Options: diamond, diamond_ultra_sens, blastp, mmseqs, blastn
   threads: 12
+  inflation: 1.2             # MCL inflation - higher = more smaller clusters
+  tree_method: "msa"         # Options: msa, dendroblast
+  msa_program: "famsa"       # Options: famsa, muscle, mafft (only used if tree_method=msa)
+  tree_inference: "fasttree" # Options: fasttree, fasttree_fastest, raxml, iqtree3 (only used if tree_method=msa)
 
 rbh:
   aligner: "diamond"
@@ -42,10 +49,12 @@ dotplot:
   dot_size: 2
   dot_alpha: 0.6
   figsize: [15, 15]
+  color_nonsignificant: false
 
 alg:
   similarity_threshold: 0.3
   min_orthologs: 10
+  cluster_species: true   # if false, all species are treated as one group
 
 ribbon:
   ribbon_alpha: 0.3
