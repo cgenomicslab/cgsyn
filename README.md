@@ -85,7 +85,7 @@ conda activate <name>
 
 ## Snakemake Workflow
 
-<img width="572" height="900" alt="SyntenyAnalysisWorkflow" src="https://github.com/user-attachments/assets/f12e27c3-d2f2-4fe5-835c-12aaaf91d1a4" />
+<img width="572" height="900" alt="SyntenyAnalysisWorkflow" src="https://github.com/user-attachments/assets/63151025-f4f6-454d-acad-7dc41f1480dc" />
 
 ## All Usage Functions
 
