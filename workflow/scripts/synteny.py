@@ -132,7 +132,7 @@ def protein(prot_file, gff_file, output='tsv',):
             start, end, strand = parts[3], parts[4], parts[6]
             attributes = parts[8]
 
-            if "region" in feature_type:
+            if feature_type == "region":
                 chr_match = re.search(r"chromosome=([A-Za-z0-9]+)", attributes, re.IGNORECASE)
                 if chr_match:
                     if chr_match.group(1) == "Unknown":
@@ -144,7 +144,7 @@ def protein(prot_file, gff_file, output='tsv',):
                     current_chr = name_match.group(1) if name_match else parts[0] #fallback to seqID, usually for contig-level assemblies
                 continue
 
-            if "gene" in feature_type and current_chr is not None:
+            if feature_type == "gene" and current_chr is not None:
                 gene_match = re.search(r"GeneID:(\d+)", attributes)
                 id_match = re.search(r"locus_tag=([^;]+)", attributes)
                 if gene_match:
