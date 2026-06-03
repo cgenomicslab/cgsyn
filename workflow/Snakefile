@@ -243,21 +243,9 @@ rule orthofinder_ribbons_multi:
 # ===== RBH RULES =====
 
 rule run_rbh:
-    input:
-        proteomes = expand(
-            "intermediates/filtered_proteomes/{species}.faa",
-            species=SPECIES
-        )
     output:
         orthogroups = "results/rbh/MBH_Orthogroups.tsv",
-        pairwise_tsvs = expand(
-            "results/rbh/Orthologues_{sp1}/{sp1}__v__{sp2}.tsv",
-            zip,
-            sp1=[sp1 for sp1, sp2 in SPECIES_PAIRS],
-            sp2=[sp2 for sp1, sp2 in SPECIES_PAIRS]
-        )
     params:
-        species_list = SPECIES,
         proteome_dir = config["filtered_proteome_dir"],
         output_dir = "results/rbh",
         threads = config["rbh"]["threads"],
@@ -269,7 +257,7 @@ rule run_rbh:
         sys.path.insert(0, "workflow/scripts")
         from synteny import find_mutual_best_hits_multi
         find_mutual_best_hits_multi(
-            species_list=params.species_list,
+            species_list=SPECIES,
             proteome_dir=params.proteome_dir,
             output_dir=params.output_dir,
             num_threads=params.threads,
@@ -278,7 +266,6 @@ rule run_rbh:
 
 rule rbh_dotplot:
     input:
-        pairwise_tsv = "results/rbh/Orthologues_{species1}/{species1}__v__{species2}.tsv",
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
@@ -301,7 +288,6 @@ rule rbh_dotplot:
 
 rule rbh_ribbon:
     input:
-        pairwise_tsv = "results/rbh/Orthologues_{species1}/{species1}__v__{species2}.tsv",
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
@@ -323,7 +309,6 @@ rule rbh_ribbon:
 
 rule alg_discovery_rbh:
     input:
-        rbh_orthogroups = "results/rbh/MBH_Orthogroups.tsv",
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
         alg_results = "results/alg_rbh/alg_results.pkl",
@@ -344,7 +329,6 @@ rule alg_discovery_rbh:
 
 rule rbh_ribbons_multi:
     input:
-        rbh_orthogroups = "results/rbh/MBH_Orthogroups.tsv",
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
         plot = "results/ribbons_multi_rbh/multi_species_ribbon.png"
@@ -375,7 +359,6 @@ rule compare_methods:
     output:
         report = "logs/orthology_comparison.txt"
     params:
-        species_list = SPECIES,
         ortho_dir = "results/orthofinder/orthologues_path.txt",
         rbh_dir = "results/rbh"
     log:

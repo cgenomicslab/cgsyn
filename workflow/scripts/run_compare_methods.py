@@ -56,6 +56,5 @@ species_list = sorted(mbh_species)
 compare_orthology_methods(
     orthofinder_dir=ortho_dir,
     rbh_dir=rbh_dir,
-    species_list=species_list,
     output_path=snakemake.output.report
 )

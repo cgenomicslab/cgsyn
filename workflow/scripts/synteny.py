@@ -773,9 +773,10 @@ def run_orthofinder(filtered_prot_dir, output_dir, species_list=None, num_thread
 
 ## Orthology Methods Comparison
 
-def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_path):
+def compare_orthology_methods(orthofinder_dir, rbh_dir, output_path):
     """
     Compare orthology inference results between OrthoFinder and RBH/MBH.
+    Species list is inferred automatically from the result files.
     
     Parameters:
     -----------
@@ -783,8 +784,6 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
         Path to OrthoFinder Orthologues directory
     rbh_dir : str
         Path to RBH/MBH results directory (results/rbh)
-    species_list : list of str
-        List of species IDs
     output_path : str
         Path to save the comparison report
     
@@ -795,6 +794,40 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
     """
     import itertools
     
+    # ===== Infer species list from result files =====
+    of_orthogroups_path = os.path.join(
+        os.path.dirname(orthofinder_dir),
+        "Orthogroups", "Orthogroups.tsv"
+    )
+    mbh_orthogroups_path = os.path.join(rbh_dir, "MBH_Orthogroups.tsv")
+
+    if not os.path.exists(of_orthogroups_path):
+        raise FileNotFoundError(
+            f"OrthoFinder Orthogroups.tsv not found at: {of_orthogroups_path}\n"
+            f"Please run --orthofinder first."
+        )
+    if not os.path.exists(mbh_orthogroups_path):
+        raise FileNotFoundError(
+            f"RBH/MBH results not found at: {mbh_orthogroups_path}\n"
+            f"Please run --rbh first."
+        )
+
+    of_df_check = pd.read_csv(of_orthogroups_path, sep='\t', index_col=0)
+    mbh_df_check = pd.read_csv(mbh_orthogroups_path, sep='\t', index_col=0)
+
+    of_species = set(of_df_check.columns.tolist())
+    mbh_species = set(mbh_df_check.columns.tolist())
+
+    if of_species != mbh_species:
+        raise ValueError(
+            f"Species mismatch between OrthoFinder and RBH results!\n"
+            f"OrthoFinder species: {sorted(of_species)}\n"
+            f"RBH species:         {sorted(mbh_species)}\n"
+            f"Please ensure both methods were run on the same set of species."
+        )
+
+    species_list = sorted(mbh_species)
+
     print("\n" + "="*70)
     print("ORTHOLOGY METHOD COMPARISON")
     print("="*70)
@@ -812,11 +845,6 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
     report_lines.append("1. ORTHOGROUP / GENE FAMILY COUNTS")
     report_lines.append("="*70)
     
-    of_orthogroups_path = os.path.join(
-        os.path.dirname(orthofinder_dir),
-        "Orthogroups", "Orthogroups.tsv"
-    )
-    
     of_total_ogs = None
     of_single_copy_ogs = None
     of_single_species_ogs = None
@@ -833,10 +861,8 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
                 sp for sp in species_list
                 if pd.notna(row.get(sp)) and str(row.get(sp, '')).strip() != ''
             ]
-            
             if len(species_present) == 1:
                 of_single_species_ogs += 1
-            
             if not any(',' in str(row.get(sp, '')) for sp in species_present):
                 of_single_copy_ogs += 1
         
@@ -844,22 +870,16 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
         report_lines.append(f"  Total orthogroups:           {of_total_ogs}")
         report_lines.append(f"  Single-copy orthogroups:     {of_single_copy_ogs} ({100*of_single_copy_ogs/of_total_ogs:.1f}%)")
         report_lines.append(f"  Single-species orthogroups:  {of_single_species_ogs} ({100*of_single_species_ogs/of_total_ogs:.1f}%) - discarded in downstream analysis")
-    else:
-        report_lines.append(f"\nOrthoFinder orthogroups file not found at: {of_orthogroups_path}")
     
-    mbh_orthogroups_path = os.path.join(rbh_dir, "MBH_Orthogroups.tsv")
     mbh_total_ogs = None
-    mbh_df = None
     
     if os.path.exists(mbh_orthogroups_path):
         mbh_df = pd.read_csv(mbh_orthogroups_path, sep='\t', index_col=0)
         mbh_total_ogs = len(mbh_df)
         
         report_lines.append(f"\nRBH/MBH:")
-        report_lines.append(f"  Total gene families:         {mbh_total_ogs}")
+        report_lines.append(f"  Total gene families (present in all species): {mbh_total_ogs}")
         report_lines.append(f"  (All MBH families are single-copy by definition)")
-    else:
-        report_lines.append(f"\nRBH/MBH orthogroups file not found at: {mbh_orthogroups_path}")
     
     if of_total_ogs and mbh_total_ogs:
         report_lines.append(f"\nDifference: OrthoFinder finds {of_total_ogs - mbh_total_ogs:+d} more gene families than MBH")
@@ -876,6 +896,8 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
     report_lines.append("Post-filtering: Only strict 1-to-1 pairs retained after removing")
     report_lines.append("                many-to-many relationships. These are the pairs")
     report_lines.append("                actually used in downstream synteny analysis.")
+    report_lines.append("RBH:            Raw reciprocal best hit counts between each species pair,")
+    report_lines.append("                before MBH filtering across all species.")
     report_lines.append("")
     
     col_width = 14
@@ -883,7 +905,7 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
         f"{'Pair':<28} "
         f"{'OF Pre-filter':>{col_width}} "
         f"{'OF Post-filter':>{col_width}} "
-        f"{'RBH/MBH':>{col_width}} "
+        f"{'RBH (pairwise)':>{col_width}} "
         f"{'Difference':>{col_width}}"
     )
     report_lines.append(header)
@@ -892,6 +914,7 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
     pair_stats = []
     
     for sp1, sp2 in species_pairs:
+        # OrthoFinder pairwise
         of_pair_path = os.path.join(orthofinder_dir, f"Orthologues_{sp1}", f"{sp1}__v__{sp2}.tsv")
         if not os.path.exists(of_pair_path):
             of_pair_path = os.path.join(orthofinder_dir, f"Orthologues_{sp2}", f"{sp2}__v__{sp1}.tsv")
@@ -908,8 +931,11 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
                 if not any(',' in str(row[c]) for c in sp_cols if pd.notna(row[c]))
             )
         
-        mbh_pair_path = os.path.join(rbh_dir, f"Orthologues_{sp1}", f"{sp1}__v__{sp2}.tsv")
-        
+        # RBH pairwise -  use raw RBH file (before MBH filtering) for true pairwise count
+        mbh_pair_path = os.path.join(rbh_dir, f"{sp1}__RBH__{sp2}.tsv")
+        if not os.path.exists(mbh_pair_path):
+            mbh_pair_path = os.path.join(rbh_dir, f"{sp2}__RBH__{sp1}.tsv")
+
         mbh_count = None
         if os.path.exists(mbh_pair_path):
             mbh_pair_df = pd.read_csv(mbh_pair_path, sep='\t')
@@ -961,46 +987,6 @@ def compare_orthology_methods(orthofinder_dir, rbh_dir, species_list, output_pat
             f"pairs per species pair than RBH/MBH."
         )
     
-    # ===== SECTION 3: Species coverage =====
-    report_lines.append("")
-    report_lines.append("="*70)
-    report_lines.append("3. GENE FAMILY SPECIES COVERAGE")
-    report_lines.append("="*70)
-    report_lines.append("(How many gene families contain genes from exactly N species)")
-    report_lines.append("")
-    
-    n_species = len(species_list)
-    
-    if of_total_ogs and of_df is not None:
-        of_coverage = {i: 0 for i in range(1, n_species + 1)}
-        for _, row in of_df.iterrows():
-            count = sum(
-                1 for sp in species_list
-                if pd.notna(row.get(sp)) and str(row.get(sp, '')).strip() != ''
-            )
-            if count in of_coverage:
-                of_coverage[count] += 1
-        
-        report_lines.append("OrthoFinder:")
-        for n, count in sorted(of_coverage.items()):
-            pct = 100 * count / of_total_ogs
-            report_lines.append(f"  Present in {n}/{n_species} species: {count:>6} orthogroups ({pct:.1f}%)")
-    
-    if mbh_total_ogs and mbh_df is not None:
-        mbh_coverage = {i: 0 for i in range(1, n_species + 1)}
-        for _, row in mbh_df.iterrows():
-            count = sum(
-                1 for sp in species_list
-                if pd.notna(row.get(sp)) and str(row.get(sp, '')).strip() != ''
-            )
-            if count in mbh_coverage:
-                mbh_coverage[count] += 1
-        
-        report_lines.append("\nRBH/MBH:")
-        for n, count in sorted(mbh_coverage.items()):
-            pct = 100 * count / mbh_total_ogs
-            report_lines.append(f"  Present in {n}/{n_species} species: {count:>6} gene families ({pct:.1f}%)")
-    
     # ===== Write report =====
     report_text = "\n".join(report_lines)
     print(report_text)
@@ -1042,8 +1028,24 @@ def df_parsing(o_dir, species1, species2):
     df_sc: pd.Dataframe
         filtered 1 to 1 orthologue pairs in dataframe format
     '''
-
-    df = pd.read_csv(o_dir, sep="\t")
+        
+    if not os.path.exists(o_dir):
+        # Try the reverse path
+        reverse_dir = o_dir.replace(
+            f"Orthologues_{species1}/{species1}__v__{species2}.tsv",
+            f"Orthologues_{species2}/{species2}__v__{species1}.tsv"
+        )
+        if os.path.exists(reverse_dir):
+            df = pd.read_csv(reverse_dir, sep="\t")
+        else:
+            raise FileNotFoundError(
+                f"Ortholog file not found in either direction:\n"
+                f"  {o_dir}\n"
+                f"  {reverse_dir}\n"
+                f"Please ensure RBH/OrthoFinder has been run for these species."
+            )
+    else:
+        df = pd.read_csv(o_dir, sep="\t")
     
     df_sc = df[
         ~(
@@ -1051,13 +1053,12 @@ def df_parsing(o_dir, species1, species2):
             df[species2].str.contains(",", na=False)
         )
     ]
-    
     df_sc["Orthogroup"] = (
         df_sc["Orthogroup"]
         + "."
         + (df_sc.groupby("Orthogroup").cumcount() + 1).astype(str)
     )
-
+    
     return df_sc
 
 ## Synteny Map Creation (with Orthofinder)
@@ -1085,8 +1086,10 @@ def synteny_map_creator(df, species, tsv_dir):
     df_sp_core = df_sp[df_sp.apply(lambda x: all((x.str.len() > 0)), axis=1)].reset_index(drop=True)
 
     sp_tsv = pd.read_csv(f"{tsv_dir}/{species}.tsv", sep = "\t")
+    
     d = {}
     pids = list(sp_tsv['ProteinID'])
+    
     for k in pids:
         for j,i in enumerate(df_sp_core[species]):
             if k in i:
