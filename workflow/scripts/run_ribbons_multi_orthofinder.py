@@ -4,6 +4,13 @@ sys.path.insert(0, "workflow/scripts")
 from synteny import *
 import matplotlib.pyplot as plt
 import pickle
+import os
+
+if not os.path.exists("results/orthofinder/orthologues_path.txt"):
+    raise FileNotFoundError(
+        "OrthoFinder results not found. Please run --orthofinder first."
+    )
+ortho_dir = open("results/orthofinder/orthologues_path.txt").read().strip()
 
 color_palette = custom_colors_cb if snakemake.params.cb_colors else custom_colors
 species_list = snakemake.params.species_list
@@ -21,13 +28,13 @@ for idx, species in enumerate(species_list):
 
     if idx == 0:
         df = df_parsing(
-            f"{snakemake.params.ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species_list[1]}.tsv",
+            f"{ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species_list[1]}.tsv",
             species_list[0], species_list[1]
         )
         sp_map = synteny_map_creator(df, species, snakemake.params.tsv_dir)
     else:
         df = df_parsing(
-            f"{snakemake.params.ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species}.tsv",
+            f"{ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species}.tsv",
             species_list[0], species
         )
         sp_map = synteny_map_creator(df, species, snakemake.params.tsv_dir)

@@ -2,6 +2,13 @@ import sys
 sys.path.insert(0, "workflow/scripts")
 from synteny import *
 import matplotlib.pyplot as plt
+import os
+
+if not os.path.exists("results/orthofinder/orthologues_path.txt"):
+    raise FileNotFoundError(
+        "OrthoFinder results not found. Please run --orthofinder first."
+    )
+ortho_dir = open("results/orthofinder/orthologues_path.txt").read().strip()
 
 color_palette = custom_colors_cb if snakemake.params.cb_colors else custom_colors
 sp1 = snakemake.params.sp1
@@ -10,7 +17,7 @@ sp2 = snakemake.params.sp2
 # Always build sp1_map and sp2_map from 1-to-1 pairs for chromosome
 # length scaling in the dotplot
 df = df_parsing(
-    f"{snakemake.params.ortho_dir}/Orthologues_{sp1}/{sp1}__v__{sp2}.tsv",
+    f"{ortho_dir}/Orthologues_{sp1}/{sp1}__v__{sp2}.tsv",
     sp1, sp2
 )
 sp1_map = synteny_map_creator(df, sp1, snakemake.params.tsv_dir)

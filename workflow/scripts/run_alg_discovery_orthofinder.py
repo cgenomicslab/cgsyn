@@ -3,6 +3,13 @@ import os
 sys.path.insert(0, "workflow/scripts")
 from synteny import *
 import pickle
+import os
+
+if not os.path.exists("results/orthofinder/orthologues_path.txt"):
+    raise FileNotFoundError(
+        "OrthoFinder results not found. Please run --orthofinder first."
+    )
+ortho_dir = open("results/orthofinder/orthologues_path.txt").read().strip()
 
 species_list = snakemake.params.species_list
 
@@ -18,12 +25,12 @@ for idx, species in enumerate(species_list):
 
     if idx == 0:
         df = df_parsing(
-            f"{snakemake.params.ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species_list[1]}.tsv",
+            f"{ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species_list[1]}.tsv",
             species_list[0], species_list[1]
         )
     else:
         df = df_parsing(
-            f"{snakemake.params.ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species}.tsv",
+            f"{ortho_dir}/Orthologues_{species_list[0]}/{species_list[0]}__v__{species}.tsv",
             species_list[0], species
         )
 

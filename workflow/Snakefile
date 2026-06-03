@@ -105,15 +105,11 @@ rule parse_gff_proteome:
 # ===== ORTHOFINDER RULES =====
 
 rule run_orthofinder:
-    input:
-        proteomes = expand("intermediates/filtered_proteomes/{species}.faa",
-                          species=SPECIES)
     output:
         done = "results/orthofinder/done.txt",
         ortho_path = "results/orthofinder/orthologues_path.txt"
     params:
         proteome_dir = config["filtered_proteome_dir"],
-        species_list = SPECIES,
         threads = config["orthofinder"]["threads"],
         aligner = config["orthofinder"]["aligner"],
         inflation = config["orthofinder"].get("inflation", 1.2),
@@ -128,7 +124,7 @@ rule run_orthofinder:
         from synteny import run_orthofinder
         ortho_path = run_orthofinder(
             filtered_prot_dir=params.proteome_dir,
-            species_list=params.species_list,
+            species_list=SPECIES,
             num_threads=params.threads,
             aligner=params.aligner,
             inflation=params.inflation,
@@ -143,8 +139,6 @@ rule run_orthofinder:
 
 rule orthofinder_dotplot:
     input:
-        orthofinder_done = "results/orthofinder/done.txt",
-        ortho_path = "results/orthofinder/orthologues_path.txt",
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
@@ -152,17 +146,15 @@ rule orthofinder_dotplot:
     params:
         sp1 = lambda wildcards: wildcards.species1,
         sp2 = lambda wildcards: wildcards.species2,
-        ortho_dir = lambda wildcards, input: open(input.ortho_path).read().strip(),
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         dot_size = config["dotplot"]["dot_size"],
         dot_alpha = config["dotplot"]["dot_alpha"],
         shared_ogs = config.get("shared_ogs", False),
-        orthogroups_tsv = lambda wildcards, input: os.path.join(
-            os.path.dirname(open(input.ortho_path).read().strip()),
-            "Orthogroups", "Orthogroups.tsv"
-        ),
+        orthogroups_tsv = lambda wildcards: os.path.join(
+            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
         color_nonsignificant = config["dotplot"].get("color_nonsignificant", False),
         cb_colors = config.get("cb_colors", False)
     log:
@@ -172,8 +164,6 @@ rule orthofinder_dotplot:
 
 rule orthofinder_ribbon:
     input:
-        orthofinder_done = "results/orthofinder/done.txt",
-        ortho_path = "results/orthofinder/orthologues_path.txt",
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
@@ -181,17 +171,15 @@ rule orthofinder_ribbon:
     params:
         sp1 = lambda wildcards: wildcards.species1,
         sp2 = lambda wildcards: wildcards.species2,
-        ortho_dir = lambda wildcards, input: open(input.ortho_path).read().strip(),
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         ribbon_alpha = config["ribbon"]["ribbon_alpha"],
         curve_style = config["ribbon"]["curve_style"],
         shared_ogs = config.get("shared_ogs", False),
-        orthogroups_tsv = lambda wildcards, input: os.path.join(
-            os.path.dirname(open(input.ortho_path).read().strip()),
-            "Orthogroups", "Orthogroups.tsv"
-        ),
+        orthogroups_tsv = lambda wildcards: os.path.join(
+            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
         cb_colors = config.get("cb_colors", False)
     log:
         "logs/ribbon_orthofinder_{species1}_{species2}.log"
@@ -200,25 +188,21 @@ rule orthofinder_ribbon:
 
 rule alg_discovery_orthofinder:
     input:
-        orthofinder_done = "results/orthofinder/done.txt",
-        ortho_path = "results/orthofinder/orthologues_path.txt",
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
         alg_results = "results/alg_orthofinder/alg_results.pkl",
         alg_summary = "results/alg_orthofinder/alg_summary.txt"
     params:
         species_list = SPECIES,
-        ortho_dir = lambda wildcards, input: open(input.ortho_path).read().strip(),
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
         min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
         shared_ogs = config.get("shared_ogs", False),
-        orthogroups_tsv = lambda wildcards, input: os.path.join(
-            os.path.dirname(open(input.ortho_path).read().strip()),
-            "Orthogroups", "Orthogroups.tsv"
-        ),
+        orthogroups_tsv = lambda wildcards: os.path.join(
+            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
         cluster_species = config.get("alg", {}).get("cluster_species", True),
 
     log:
@@ -228,14 +212,11 @@ rule alg_discovery_orthofinder:
 
 rule orthofinder_ribbons_multi:
     input:
-        orthofinder_done = "results/orthofinder/done.txt",
-        ortho_path = "results/orthofinder/orthologues_path.txt",
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
         plot = "results/ribbons_multi_orthofinder/multi_species_ribbon.png"
     params:
         species_list = SPECIES,
-        ortho_dir = lambda wildcards, input: open(input.ortho_path).read().strip(),
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
@@ -248,10 +229,9 @@ rule orthofinder_ribbons_multi:
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
         min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
         shared_ogs = config.get("shared_ogs", False),
-        orthogroups_tsv = lambda wildcards, input: os.path.join(
-            os.path.dirname(open(input.ortho_path).read().strip()),
-            "Orthogroups", "Orthogroups.tsv"
-        ),
+        orthogroups_tsv = lambda wildcards: os.path.join(
+            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
         cb_colors = config.get("cb_colors", False),
         cluster_species = config.get("alg", {}).get("cluster_species", True),
         
