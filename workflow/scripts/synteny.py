@@ -1561,14 +1561,13 @@ def fishers_multi(species_maps, species_names, alpha=0.01, min_matches=False):
     return multi_filtered_map
 
 
-## Fisher's for OGs
-
 def create_comparison_map_shared_ogs(species1_name, species2_name,
                                       orthogroups_tsv_path, tsv_dir):
     """
     Create an expanded comparison map using shared orthogroup membership
     instead of strict 1-to-1 ortholog pairs. For each OG present in both
-    species, genes are paired positionally up to min(count_spA, count_spB).
+    species, one representative gene per species is selected (the first
+    by genomic position), creating one entry per shared OG.
 
     Unlike create_comparison_map which only includes genes with inferred
     1-to-1 ortholog pairs, this function includes ALL genes that share an
@@ -1593,9 +1592,9 @@ def create_comparison_map_shared_ogs(species1_name, species2_name,
     Returns:
     --------
     comparison_map : dict
-        Expanded comparison map keyed by OG_ID.N
+        Comparison map keyed by OG_ID (one entry per shared OG)
         Format identical to create_comparison_map output:
-        {og_key: [(species1_name, chrom, pos_idx), (species2_name, chrom, pos_idx)]}
+        {og_id: [(species1_name, chrom, pos_idx), (species2_name, chrom, pos_idx)]}
     """
 
     og_df = pd.read_csv(orthogroups_tsv_path, sep='\t', index_col=0)
@@ -1638,7 +1637,6 @@ def create_comparison_map_shared_ogs(species1_name, species2_name,
     sp2_protein_to_pos = build_protein_lookup(species2_name)
 
     comparison_map = {}
-    pair_counter = defaultdict(int)
 
     for og_id, row in og_df.iterrows():
         sp1_genes = get_gene_list(row.get(species1_name, ''))
@@ -1654,21 +1652,17 @@ def create_comparison_map_shared_ogs(species1_name, species2_name,
         if not sp1_genes or not sp2_genes:
             continue
 
-        # Sort by genomic position index
-        sp1_genes.sort(key=lambda g: sp1_protein_to_pos[g][2])
-        sp2_genes.sort(key=lambda g: sp2_protein_to_pos[g][2])
+        # Pick one representative gene per species - the first by genomic position
+        sp1_rep = min(sp1_genes, key=lambda g: sp1_protein_to_pos[g][2])
+        sp2_rep = min(sp2_genes, key=lambda g: sp2_protein_to_pos[g][2])
 
-        # Pair up to min(count_spA, count_spB)
-        n_pairs = min(len(sp1_genes), len(sp2_genes))
-        for k in range(n_pairs):
-            pair_counter[og_id] += 1
-            key = f"{og_id}.{pair_counter[og_id]}"
-            comparison_map[key] = [
-                sp1_protein_to_pos[sp1_genes[k]],
-                sp2_protein_to_pos[sp2_genes[k]]
-            ]
+        # One entry per OG - keyed by OG_ID directly
+        comparison_map[og_id] = [
+            sp1_protein_to_pos[sp1_rep],
+            sp2_protein_to_pos[sp2_rep]
+        ]
 
-    print(f"  Expanded comparison map size (shared OG mode): {len(comparison_map)}")
+    print(f"  Shared OG comparison map size: {len(comparison_map)}")
     return comparison_map
 
 
@@ -1676,21 +1670,24 @@ def fishers_shared_ogs(comparison_map_shared, species1_name, species2_name,
                        orthogroups_tsv_path, alpha=0.01, min_matches=False,
                        gene_filtering=False):
     """
-    Shared-OG equivalent of fishers(). Takes an expanded comparison map
-    (output of create_comparison_map_shared_ogs) and runs Fisher's exact
-    test using shared OG counts for the contingency table.
+    Shared-OG equivalent of fishers(). Takes a comparison map where each
+    entry represents one shared orthogroup (output of
+    create_comparison_map_shared_ogs) and runs Fisher's exact test counting
+    each OG once.
 
-    The contingency table is built differently from fishers():
-    - A: sum of min(count_OG_chr1_spA, count_OG_chr1_spB) for OGs on both chromosomes
-    - B: genes on sp2_chr in OGs present elsewhere in sp1 but not on sp1_chr
-    - C: genes on sp1_chr in OGs present elsewhere in sp2 but not on sp2_chr
-    - N: sum of min(count_OG_spA, count_OG_spB) for all OGs shared genome-wide
-    - D: N - A - B - C
+    The contingency table counts OGs rather than gene pairs:
+    - N: total number of OGs present in both species genome-wide
+    - A: OGs present on chrX_sp1 AND chrY_sp2
+    - B: OGs present on chrY_sp2 but NOT on chrX_sp1 (present elsewhere in sp1)
+    - C: OGs present on chrX_sp1 but NOT on chrY_sp2 (present elsewhere in sp2)
+    - D: N - A - B - C (OGs shared genome-wide but not on either focal chromosome)
+
+    Each OG is counted exactly once regardless of copy number.
 
     Parameters:
     -----------
     comparison_map_shared : dict
-        Output of create_comparison_map_shared_ogs
+        Output of create_comparison_map_shared_ogs. One entry per shared OG.
     species1_name : str
         Species 1 ID
     species2_name : str
@@ -1709,89 +1706,61 @@ def fishers_shared_ogs(comparison_map_shared, species1_name, species2_name,
     If gene_filtering=False:
         counts_df, results_df, significant_pairs
     If gene_filtering=True:
-        filtered_map : dict (same format as comparison_map_shared but only
-                       entries from significant chromosome pairs)
+        filtered_map : dict
     """
 
-    # ===== STEP 1: Load Orthogroups.tsv for genome-wide OG counts =====
+    # ===== STEP 1: Compute N from Orthogroups.tsv =====
     og_df = pd.read_csv(orthogroups_tsv_path, sep='\t', index_col=0)
 
-    def count_genes_in_cell(val):
-        if pd.isna(val) or str(val).strip() == '':
-            return 0
-        return len(str(val).split(', '))
+    def has_genes(val):
+        return pd.notna(val) and str(val).strip() != ''
 
-    og_sp1_total = {}
-    og_sp2_total = {}
-
-    for og_id, row in og_df.iterrows():
-        c1 = count_genes_in_cell(row.get(species1_name, ''))
-        c2 = count_genes_in_cell(row.get(species2_name, ''))
-        if c1 > 0:
-            og_sp1_total[og_id] = c1
-        if c2 > 0:
-            og_sp2_total[og_id] = c2
-
-    shared_ogs_genome = set(og_sp1_total.keys()) & set(og_sp2_total.keys())
-
-    total_N = sum(
-        min(og_sp1_total[og], og_sp2_total[og])
-        for og in shared_ogs_genome
+    # N = number of OGs present in both species genome-wide
+    shared_ogs_genome = set(
+        og_id for og_id, row in og_df.iterrows()
+        if has_genes(row.get(species1_name, '')) and has_genes(row.get(species2_name, ''))
     )
+    total_N = len(shared_ogs_genome)
 
     print(f"\n{species1_name} vs {species2_name}")
-    print(f"  Shared OGs genome-wide: {len(shared_ogs_genome)}")
-    print(f"  Total N (sum of mins):  {total_N}")
+    print(f"  Shared OGs genome-wide (N): {total_N}")
 
-    # ===== STEP 2: Build per-chromosome OG counts from comparison map =====
-    # comparison_map_shared keys are like OG0000019.1, OG0000019.2 etc.
-    # Strip the suffix to get base OG ID
-    sp1_chrom_og_counts = defaultdict(lambda: defaultdict(int))
-    sp2_chrom_og_counts = defaultdict(lambda: defaultdict(int))
+    # ===== STEP 2: Build per-chromosome OG sets from comparison map =====
+    # Each key in comparison_map_shared is one OG_ID, one entry per OG
+    sp1_chrom_ogs = defaultdict(set)
+    sp2_chrom_ogs = defaultdict(set)
 
-    for og_key, positions in comparison_map_shared.items():
-        base_og = og_key.rsplit('.', 1)[0]
-        if base_og not in shared_ogs_genome:
+    for og_id, positions in comparison_map_shared.items():
+        if og_id not in shared_ogs_genome:
             continue
         sp1_chrom = positions[0][1]
         sp2_chrom = positions[1][1]
-        sp1_chrom_og_counts[sp1_chrom][base_og] += 1
-        sp2_chrom_og_counts[sp2_chrom][base_og] += 1
+        sp1_chrom_ogs[sp1_chrom].add(og_id)
+        sp2_chrom_ogs[sp2_chrom].add(og_id)
 
-    sp1_chroms = sorted(sp1_chrom_og_counts.keys(), key=chrom_sort_key)
-    sp2_chroms = sorted(sp2_chrom_og_counts.keys(), key=chrom_sort_key)
+    sp1_chroms = sorted(sp1_chrom_ogs.keys(), key=chrom_sort_key)
+    sp2_chroms = sorted(sp2_chrom_ogs.keys(), key=chrom_sort_key)
 
     # ===== STEP 3: Build contingency tables and run Fisher's test =====
     results = []
 
     for sp1_chr in sp1_chroms:
-        sp1_og_counts = sp1_chrom_og_counts[sp1_chr]
-        sp1_chr_shared_ogs = {
-            og: cnt for og, cnt in sp1_og_counts.items()
-            if og in shared_ogs_genome
-        }
+        sp1_ogs = sp1_chrom_ogs[sp1_chr]
 
         for sp2_chr in sp2_chroms:
-            sp2_og_counts = sp2_chrom_og_counts[sp2_chr]
-            sp2_chr_shared_ogs = {
-                og: cnt for og, cnt in sp2_og_counts.items()
-                if og in shared_ogs_genome
-            }
+            sp2_ogs = sp2_chrom_ogs[sp2_chr]
 
-            both_chrs_ogs = set(sp1_chr_shared_ogs.keys()) & set(sp2_chr_shared_ogs.keys())
+            # A: OGs on BOTH chromosomes
+            a = len(sp1_ogs & sp2_ogs)
 
-            a = sum(
-                min(sp1_chr_shared_ogs[og], sp2_chr_shared_ogs[og])
-                for og in both_chrs_ogs
-            )
-            b = sum(
-                cnt for og, cnt in sp2_chr_shared_ogs.items()
-                if og not in sp1_chr_shared_ogs
-            )
-            c = sum(
-                cnt for og, cnt in sp1_chr_shared_ogs.items()
-                if og not in sp2_chr_shared_ogs
-            )
+            # B: OGs on sp2_chr but NOT on sp1_chr
+            # (must be in shared_ogs_genome to be in comparison_map)
+            b = len(sp2_ogs - sp1_ogs)
+
+            # C: OGs on sp1_chr but NOT on sp2_chr
+            c = len(sp1_ogs - sp2_ogs)
+
+            # D = N - A - B - C
             d = total_N - a - b - c
 
             if d < 0:
@@ -1870,8 +1839,8 @@ def fishers_shared_ogs(comparison_map_shared, species1_name, species2_name,
             for sp1_chr, sp2_chr, _, _, _ in significant_pairs
         }
         filtered_map = {
-            og_key: positions
-            for og_key, positions in comparison_map_shared.items()
+            og_id: positions
+            for og_id, positions in comparison_map_shared.items()
             if (positions[0][1], positions[1][1]) in significant_set
         }
         print(f"  Filtered map size (shared OG mode): {len(filtered_map)}")
@@ -1883,7 +1852,7 @@ def fishers_shared_ogs(comparison_map_shared, species1_name, species2_name,
 def fishers_multi_shared_ogs(species_names, orthogroups_tsv_path, tsv_dir,
                               alpha=0.01, min_matches=False):
     """
-    Multi-species shared-OG equivalent of fishers_multi. Builds expanded
+    Multi-species shared-OG equivalent of fishers_multi. Builds shared-OG
     comparison maps for all species pairs and runs shared-OG Fisher's test,
     producing the same output format as fishers_multi for use in ALG
     discovery and multi-ribbon plots.
@@ -1891,7 +1860,7 @@ def fishers_multi_shared_ogs(species_names, orthogroups_tsv_path, tsv_dir,
     Parameters:
     -----------
     species_names : list of str
-        Species IDs in same order as species_maps
+        Species IDs
     orthogroups_tsv_path : str
         Path to OrthoFinder's Orthogroups/Orthogroups.tsv
     tsv_dir : str
@@ -1907,7 +1876,7 @@ def fishers_multi_shared_ogs(species_names, orthogroups_tsv_path, tsv_dir,
     --------
     multi_filtered_map : dict
         Same format as fishers_multi output:
-        {og_key: {'positions': [...], 'significant_segments': [(i,j), ...]}}
+        {og_id: {'positions': [...], 'significant_segments': [(i,j), ...]}}
     """
     n_species = len(species_names)
 
@@ -1944,41 +1913,41 @@ def fishers_multi_shared_ogs(species_names, orthogroups_tsv_path, tsv_dir,
         pairwise_filtered_maps[(i, j)] = filtered_map
         print(f"  Significant OG entries: {len(filtered_map)}")
 
-    # Collect all unique og_keys across all pairs
-    all_og_keys = set()
+    # Collect all unique og_ids across all pairs
+    all_og_ids = set()
     for filtered_map in pairwise_filtered_maps.values():
-        all_og_keys.update(filtered_map.keys())
+        all_og_ids.update(filtered_map.keys())
 
     print(f"\n{'='*60}")
     print(f"BUILDING MULTI-SPECIES MAP (SHARED OG MODE)")
     print(f"{'='*60}")
-    print(f"Total unique OG entries: {len(all_og_keys)}")
+    print(f"Total unique OGs: {len(all_og_ids)}")
 
     # Build position lookup per species from pairwise filtered maps
-    og_key_positions_by_species = defaultdict(dict)
+    og_positions_by_species = defaultdict(dict)
     for (i, j), filtered_map in pairwise_filtered_maps.items():
-        for og_key, positions in filtered_map.items():
-            og_key_positions_by_species[og_key][species_names[i]] = positions[0]
-            og_key_positions_by_species[og_key][species_names[j]] = positions[1]
+        for og_id, positions in filtered_map.items():
+            og_positions_by_species[og_id][species_names[i]] = positions[0]
+            og_positions_by_species[og_id][species_names[j]] = positions[1]
 
     # Build final multi-species filtered map
     multi_filtered_map = {}
 
-    for og_key in all_og_keys:
+    for og_id in all_og_ids:
         positions = [
-            og_key_positions_by_species[og_key].get(sp_name, None)
+            og_positions_by_species[og_id].get(sp_name, None)
             for sp_name in species_names
         ]
 
         significant_segments = [
             (i, j) for i, j in all_pairs
-            if og_key in pairwise_filtered_maps.get((i, j), {})
+            if og_id in pairwise_filtered_maps.get((i, j), {})
             and positions[i] is not None
             and positions[j] is not None
         ]
 
         if significant_segments:
-            multi_filtered_map[og_key] = {
+            multi_filtered_map[og_id] = {
                 'positions': positions,
                 'significant_segments': significant_segments
             }
