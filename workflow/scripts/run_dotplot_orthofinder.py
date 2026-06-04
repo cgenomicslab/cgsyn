@@ -39,6 +39,22 @@ if snakemake.params.shared_ogs:
         min_matches=snakemake.params.min_matches,
         gene_filtering=False
     )
+    comparison_map_all_pairs = create_comparison_map_shared_ogs(
+        species1_name=sp1,
+        species2_name=sp2,
+        orthogroups_tsv_path=snakemake.params.orthogroups_tsv,
+        tsv_dir=snakemake.params.tsv_dir,
+        all_pairs=True
+    )
+        fig, ax = plot_synteny_dotplot(
+        comparison_map_all_pairs, sp1_map, sp2_map, significant_pairs,
+        species1=sp1,
+        species2=sp2,
+        dot_size=snakemake.params.dot_size,
+        dot_alpha=snakemake.params.dot_alpha,
+        color_nonsignificant=snakemake.params.color_nonsignificant,
+        color_palette=color_palette
+    )
 else:
     comparison_map = create_comparison_map(sp1_map, sp2_map, sp1, sp2)
     counts_df, results_df, significant_pairs = fishers(
@@ -47,15 +63,15 @@ else:
         min_matches=snakemake.params.min_matches
     )
 
-fig, ax = plot_synteny_dotplot(
-    comparison_map, sp1_map, sp2_map, significant_pairs,
-    species1=sp1,
-    species2=sp2,
-    dot_size=snakemake.params.dot_size,
-    dot_alpha=snakemake.params.dot_alpha,
-    color_nonsignificant=snakemake.params.color_nonsignificant,
-    color_palette=color_palette
-)
+    fig, ax = plot_synteny_dotplot(
+        comparison_map, sp1_map, sp2_map, significant_pairs,
+        species1=sp1,
+        species2=sp2,
+        dot_size=snakemake.params.dot_size,
+        dot_alpha=snakemake.params.dot_alpha,
+        color_nonsignificant=snakemake.params.color_nonsignificant,
+        color_palette=color_palette
+    )
 
 plt.savefig(snakemake.output.plot, dpi=300, bbox_inches='tight')
 plt.close()

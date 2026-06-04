@@ -1562,7 +1562,7 @@ def fishers_multi(species_maps, species_names, alpha=0.01, min_matches=False):
 
 
 def create_comparison_map_shared_ogs(species1_name, species2_name,
-                                      orthogroups_tsv_path, tsv_dir):
+                                      orthogroups_tsv_path, tsv_dir, all_pairs = False):
     """
     Create an expanded comparison map using shared orthogroup membership
     instead of strict 1-to-1 ortholog pairs. For each OG present in both
@@ -1588,6 +1588,9 @@ def create_comparison_map_shared_ogs(species1_name, species2_name,
         Path to OrthoFinder's Orthogroups/Orthogroups.tsv
     tsv_dir : str
         Directory containing {species}.tsv coordinate files
+    all_pairs : bool, default=False
+        If True, creates entries for ALL possible gene pairs between the two species
+        within each shared OG (instead of just one representative pair per OG).
 
     Returns:
     --------
@@ -1662,16 +1665,28 @@ def create_comparison_map_shared_ogs(species1_name, species2_name,
 
         if not sp1_genes or not sp2_genes:
             continue
+        
+        if all_pairs:
+            # Cartesian product - all possible pairings
+            pair_counter = 0
+            for g1 in sp1_genes:
+                for g2 in sp2_genes:
+                    pair_counter += 1
+                    key = f"{og_id}.{pair_counter}"
+                    comparison_map[key] = [
+                        sp1_protein_to_pos[g1],
+                        sp2_protein_to_pos[g2]
+                    ]        
+        else:
+            # Pick one representative gene per species - the first by genomic position
+            sp1_rep = min(sp1_genes, key=lambda g: sp1_protein_to_pos[g][2])
+            sp2_rep = min(sp2_genes, key=lambda g: sp2_protein_to_pos[g][2])
 
-        # Pick one representative gene per species - the first by genomic position
-        sp1_rep = min(sp1_genes, key=lambda g: sp1_protein_to_pos[g][2])
-        sp2_rep = min(sp2_genes, key=lambda g: sp2_protein_to_pos[g][2])
-
-        # One entry per OG - keyed by OG_ID directly
-        comparison_map[og_id] = [
-            sp1_protein_to_pos[sp1_rep],
-            sp2_protein_to_pos[sp2_rep]
-        ]
+            # One entry per OG - keyed by OG_ID directly
+            comparison_map[og_id] = [
+                sp1_protein_to_pos[sp1_rep],
+                sp2_protein_to_pos[sp2_rep]
+            ]
 
     print(f"  Shared OG comparison map size: {len(comparison_map)}")
     return comparison_map
