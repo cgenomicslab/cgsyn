@@ -1612,6 +1612,17 @@ def create_comparison_map_shared_ogs(species1_name, species2_name,
     # Build protein -> (species, chrom, pos_idx) lookup directly from
     # coordinate TSVs so ALL genes are included, not just 1-to-1 pairs
     def build_protein_lookup(species_name):
+        
+        MT_NAMES = {'MT', 'Mt', 'chrM', 'M', 'mitochondrion', 'Mito', 'MtDNA'}
+    
+        tsv_path = os.path.join(tsv_dir, f"{species_name}.tsv")
+        df = pd.read_csv(tsv_path, sep='\t')
+    
+        # Exclude mitochondrial chromosome
+        df = df[~df['Chr/Scaffold'].isin(MT_NAMES)]
+    
+        chrom_proteins = defaultdict(list)
+    
         tsv_path = os.path.join(tsv_dir, f"{species_name}.tsv")
         if not os.path.exists(tsv_path):
             raise FileNotFoundError(f"TSV file not found: {tsv_path}")
