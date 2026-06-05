@@ -46,7 +46,7 @@ if snakemake.params.shared_ogs:
         tsv_dir=snakemake.params.tsv_dir,
         all_pairs=True
     )
-        fig, ax = plot_synteny_dotplot(
+    fig, ax = plot_synteny_dotplot(
         comparison_map_all_pairs, sp1_map, sp2_map, significant_pairs,
         species1=sp1,
         species2=sp2,
