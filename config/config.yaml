@@ -53,7 +53,7 @@ dotplot:
 
 alg:
   similarity_threshold: 0.3
-  min_orthologs: 10
+  min_orthologs: 2
   cluster_species: true   # if false, all species are treated as one group
 
 ribbon:
