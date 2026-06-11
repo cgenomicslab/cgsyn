@@ -281,32 +281,6 @@ The plots are saved in .png format in the ```./results/ribbons_multi_orthofinder
 
 By adding the ```--cb-colors``` flag to any of the previous plotting options, CGSyn will switch to a colorblind-safe color palette for all plots, based on [Wong (2011)](https://www.nature.com/articles/nmeth.1618) and [Paul Tol's](https://cran.r-project.org/web/packages/khroma/vignettes/tol.html) bright, vibrant and muted color schemes. 
 
-### Extra: Anchor Gene Family Analysis
-
-**Anchor Gene Families** are sets of genes that are present as single-copy orthologs across all species being compared and show conserved synteny. The concept was introduced by [Simakov et al. (2022)](https://doi.org/10.1126/sciadv.abi5884) as a metric to support the validity of the ALGs he discovered and anchor synteny comparisons across deeply diverged species - hence the name.
-
-To qualify as an anchor gene family, a gene must satisfy two strict criteria:
-* Single-copy: the gene must appear exactly once in each species - no duplications allowed
-* Mutual best hit: each gene in the family must be the reciprocal best BLAST/DIAMOND hit of its ortholog in every other species.
-
-These two filters together ensure that the genes are truly orthologous (not paralogs) and have not undergone lineage-specific expansions, making them reliable landmarks for synteny comparison.
-
-CGSyn implements two modes:
-* **Triangle mode (default)**: A set of 3 core species (the "triangle") is defined first. Only genes that form a 3-way mutual best hit across all three are kept as the core set. Additional species are then added one by one - a gene joins a family only if it is a mutual best hit with all 3 core species. This mode is more lenient and recommended when the species are distantly related.
-
-```bash
-./synteny.sh --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis
-```
-
-* **Full MBH mode**: All species are treated equally from the start, requiring mutual best hits across every possible pair simultaneously. More stringent than triangle mode as the number of species increases.
-
-
-```bash
-./synteny.sh --rest <sp1,sp2,sp3,sp4,sp5> --mbh --gene-analysis
-```
-
-Results are saved as a .tsv table with one row per family and one column per species, and a human-readable .txt file listing the protein IDs and chromosomal locations of each family member in the ```results/gene_analysis``` directory.
-
 ## Usage Examples
 A user can run multiple flags at the same time, as long as they all belong to the same Orthology Inference Pathway (Orthofinder vs RBH).
 The --download flag/function can only be run on its own.
