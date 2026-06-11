@@ -85,7 +85,7 @@ conda activate <name>
 
 ## Snakemake Workflow
 
-<img width="572" height="900" alt="CGSyn_workflow" src="https://github.com/user-attachments/assets/50524cb1-6455-4980-9164-3be3f14b99e7" />
+<img width="620" height="900" alt="CGSyn_workflow" src="https://github.com/user-attachments/assets/50524cb1-6455-4980-9164-3be3f14b99e7" />
 
 ## All Usage Functions
 
