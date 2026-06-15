@@ -3,6 +3,7 @@
 # synteny - Command-line wrapper for Synteny Pipeline
 # Usage: ./synteny [OPTIONS]
 
+PYTHON=$(which python3)
 set -e
 
 # Default config file
@@ -284,7 +285,7 @@ while [[ $# -gt 0 ]]; do
             # Convert comma-separated to YAML list
             YAML_SPECIES=$(echo "$SPECIES" | sed 's/,/\n  - /g')
             # This is complex for sed, better to use Python
-            python3 << EOF
+            $PYTHON << EOF
 import yaml
 with open('$TEMP_CONFIG', 'r') as f:
     config = yaml.safe_load(f)
@@ -296,8 +297,8 @@ EOF
             ;;
         --triangle)
             TRIANGLE="$2"
-            python3 << EOF
-import yaml
+            $PYTHON << EOF
+
 with open('$TEMP_CONFIG', 'r') as f:
     config = yaml.safe_load(f)
 config['gene_analysis']['triangle_species'] = '$TRIANGLE'.split(',')
@@ -308,8 +309,8 @@ EOF
             ;;
         --rest)
             REST="$2"
-            python3 << EOF
-import yaml
+            $PYTHON << EOF
+
 with open('$TEMP_CONFIG', 'r') as f:
     config = yaml.safe_load(f)
 config['gene_analysis']['rest_species'] = '$REST'.split(',')
