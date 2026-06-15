@@ -289,14 +289,14 @@ Orthofinder Full Analysis Example:
 
 ```bash
 ./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,...">
-./synteny.sh --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --ribbons-multi-orthofinder --alg-discovery-orthofinder --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
+./synteny.sh --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --cores 32
 ```
 
 RBH Full Analysis Example:
 
 ```bash
 ./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,...">
-./synteny.sh --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --ribbons-multi-rbh --alg-discovery-rbh --triangle <sp1,sp2,sp3> --rest <sp4,sp5> --gene-analysis --cores 32
+./synteny.sh --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --cores 32
 ```
 
 ## Citations:
