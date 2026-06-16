@@ -2689,140 +2689,184 @@ def identify_algs_for_cluster(cluster_species, species_maps, species_names,
     print(f"\n{'─'*70}")
     print(f"IDENTIFYING ALGs FOR CLUSTER: {', '.join(cluster_species)}")
     print(f"{'─'*70}")
-    
+
     if len(cluster_species) < 2:
         print("⚠️  Only 1 species in cluster - cannot define ALGs")
-        return {}
-    
+        return {}, {}, {}
+
     cluster_indices = [species_names.index(sp) for sp in cluster_species]
-    
-    # Step 0: Precompute significant chromosome pairs
+
     print("\nPrecomputing significant chromosome pairs...")
     sig_chrom_pairs = precompute_significant_chrom_pairs(
         cluster_species, species_names, fishers_multi_results, min_orthologs
     )
-    
-    # Step 1: Build adjacent pairwise matches for chain construction
+
     pairwise_matches = {}
-    
+
     for i in range(len(cluster_species) - 1):
         sp1 = cluster_species[i]
         sp2 = cluster_species[i + 1]
-        
+
         if (sp1, sp2) in sig_chrom_pairs:
             sp_pair = (sp1, sp2)
-            matches = [(chr1, chr2, count) 
+            matches = [(chr1, chr2, count)
                       for (chr1, chr2), count in sig_chrom_pairs[sp_pair].items()]
         elif (sp2, sp1) in sig_chrom_pairs:
             sp_pair = (sp2, sp1)
-            matches = [(chr2, chr1, count) 
+            matches = [(chr2, chr1, count)
                       for (chr1, chr2), count in sig_chrom_pairs[sp_pair].items()]
         else:
             matches = []
-        
+
         matches.sort(key=lambda x: x[2], reverse=True)
         pairwise_matches[(sp1, sp2)] = matches
-        
+
         print(f"\n{sp1} ↔ {sp2}: {len(matches)} significant chromosome pairs")
         for chr1, chr2, count in matches[:5]:
             print(f"  {chr1} ↔ {chr2}: {count} orthologs")
         if len(matches) > 5:
             print(f"  ... and {len(matches) - 5} more")
-    
-    # Step 2: Build ALG chains recursively from adjacent matches
+
     def extend_chain(chain, remaining_species):
         if not remaining_species:
             return [chain]
-        
+
         current_sp = remaining_species[0]
         next_remaining = remaining_species[1:]
-        
+
         prev_sp = None
         for sp in reversed(cluster_species):
             if sp in chain:
                 prev_sp = sp
                 break
-        
+
         if prev_sp is None:
             return [chain]
-        
+
         if (prev_sp, current_sp) in pairwise_matches:
             matches = pairwise_matches[(prev_sp, current_sp)]
         elif (current_sp, prev_sp) in pairwise_matches:
-            matches = [(chr2, chr1, cnt) 
+            matches = [(chr2, chr1, cnt)
                       for chr1, chr2, cnt in pairwise_matches[(current_sp, prev_sp)]]
         else:
             return [chain]
-        
+
         prev_chr = chain[prev_sp]
         possible_extensions = [chr2 for chr1, chr2, cnt in matches if chr1 == prev_chr]
-        
+
         if not possible_extensions:
             return [chain]
-        
+
         all_chains = []
         for chr_current in possible_extensions:
             new_chain = chain.copy()
             new_chain[current_sp] = chr_current
             all_chains.extend(extend_chain(new_chain, next_remaining))
-        
+
         return all_chains
-    
-    # Build chains starting from first species
+
     sp1 = cluster_species[0]
     sp1_chroms = sorted(species_maps[cluster_indices[0]].keys(), key=chrom_sort_key)
-    
+
     all_candidate_chains = []
     for chr1 in sp1_chroms:
         initial_chain = {sp1: chr1}
         extended_chains = extend_chain(initial_chain, cluster_species[1:])
         all_candidate_chains.extend(extended_chains)
-    
+
     print(f"\n{'─'*70}")
     print(f"VERIFYING {len(all_candidate_chains)} candidate chains...")
     print(f"{'─'*70}")
-    
-    # Step 3: Verify all pairs in each complete chain
+
     valid_algs = []
     for chain in all_candidate_chains:
         if len(chain) == len(cluster_species):
             if verify_alg_chain(chain, cluster_species, sig_chrom_pairs):
                 valid_algs.append(chain)
-    
+
     print(f"Valid ALGs: {len(valid_algs)}")
-    
-    # Step 4: Assign ALG IDs
+
     alg_assignments = {}
-    
+    alg_gene_sets = {}
+    alg_unique_pairs = {}
+
+    # First pass: build all chain pairs and find unique pairs per ALG
+    all_chain_pairs = {}
+    for alg_id, chain in enumerate(valid_algs, start=1):
+        chain_species_list = [sp for sp in cluster_species if sp in chain]
+        this_chain_pairs = set()
+        for i in range(len(chain_species_list)):
+            for j in range(i + 1, len(chain_species_list)):
+                sp_a = chain_species_list[i]
+                sp_b = chain_species_list[j]
+                idx_a = species_names.index(sp_a)
+                idx_b = species_names.index(sp_b)
+                this_chain_pairs.add((idx_a, chain[sp_a], idx_b, chain[sp_b]))
+        all_chain_pairs[alg_id] = this_chain_pairs
+
+    # Second pass: compute unique pairs for each ALG
+    for alg_id in all_chain_pairs:
+        other_pairs = set()
+        for other_id, other_chain_pairs in all_chain_pairs.items():
+            if other_id != alg_id:
+                other_pairs.update(other_chain_pairs)
+        unique_pairs = all_chain_pairs[alg_id] - other_pairs
+        # Fall back to all pairs if no unique pairs found
+        alg_unique_pairs[alg_id] = unique_pairs if unique_pairs else all_chain_pairs[alg_id]
+
+    # Third pass: assign chromosomes and build gene sets
     for alg_id, chain in enumerate(valid_algs, start=1):
         print(f"\nALG {alg_id}:")
         for species in cluster_species:
             if species in chain:
                 chrom = chain[species]
                 print(f"  {species}: {chrom}")
-                
+
                 if species not in alg_assignments:
                     alg_assignments[species] = {}
                 if chrom not in alg_assignments[species]:
                     alg_assignments[species][chrom] = []
-                
                 alg_assignments[species][chrom].append(alg_id)
-    
-    # Report chromosomes in multiple ALGs
+
+        # Build gene set using unique distinguishing pairs only
+        gene_set = set()
+        distinguishing_pairs = alg_unique_pairs[alg_id]
+        print(f"  Unique pairs: {len(distinguishing_pairs)} / {len(all_chain_pairs[alg_id])} total")
+
+        for og_id, data in fishers_multi_results.items():
+            positions = data['positions']
+            significant_segments = data['significant_segments']
+
+            for (idx_a, chr_a, idx_b, chr_b) in distinguishing_pairs:
+                if idx_a >= len(positions) or idx_b >= len(positions):
+                    continue
+                pos_a = positions[idx_a]
+                pos_b = positions[idx_b]
+                if pos_a is None or pos_b is None:
+                    continue
+                if pos_a[1] != chr_a or pos_b[1] != chr_b:
+                    continue
+                if (idx_a, idx_b) in significant_segments or (idx_b, idx_a) in significant_segments:
+                    gene_set.add(og_id)
+                    break
+
+        alg_gene_sets[alg_id] = gene_set
+        print(f"  Genes in ALG {alg_id}: {len(gene_set)}")
+
     multi_alg_chroms = [
         (species, chrom, alg_list)
         for species, chr_dict in alg_assignments.items()
         for chrom, alg_list in chr_dict.items()
         if len(alg_list) > 1
     ]
-    
+
     if multi_alg_chroms:
         print(f"\n📍 Chromosomes in multiple ALGs:")
         for species, chrom, alg_list in multi_alg_chroms:
             print(f"  {species} {chrom}: ALG{', ALG'.join(map(str, alg_list))}")
-    
-    return alg_assignments
 
+    return alg_assignments, alg_gene_sets, alg_unique_pairs
+    
 
 def compute_algs_full_pipeline(species_maps, species_names, fishers_multi_results,
                                  similarity_threshold=0.3, min_orthologs=10,
@@ -2873,9 +2917,11 @@ def compute_algs_full_pipeline(species_maps, species_names, fishers_multi_result
 
     all_alg_assignments = {}
     all_clusters_info = {}
+    all_alg_gene_sets = {}
+    all_alg_unique_pairs = {}
 
     for cluster_id, cluster_species_list in sorted(clusters.items()):
-        alg_assignments = identify_algs_for_cluster(
+        alg_assignments, alg_gene_sets, alg_unique_pairs = identify_algs_for_cluster(
             cluster_species_list, species_maps, species_names,
             fishers_multi_results, min_orthologs=min_orthologs
         )
@@ -2883,10 +2929,17 @@ def compute_algs_full_pipeline(species_maps, species_names, fishers_multi_result
         for species, chrom_to_algs in alg_assignments.items():
             if species not in all_alg_assignments:
                 all_alg_assignments[species] = {}
-
             for chrom, alg_list in chrom_to_algs.items():
                 prefixed_algs = [f"C{cluster_id}_ALG{alg}" for alg in alg_list]
                 all_alg_assignments[species][chrom] = prefixed_algs
+
+        for alg_id, gene_set in alg_gene_sets.items():
+            prefixed_alg = f"C{cluster_id}_ALG{alg_id}"
+            all_alg_gene_sets[prefixed_alg] = gene_set
+
+        for alg_id, unique_pairs in alg_unique_pairs.items():
+            prefixed_alg = f"C{cluster_id}_ALG{alg_id}"
+            all_alg_unique_pairs[prefixed_alg] = unique_pairs
 
         all_clusters_info[cluster_id] = cluster_species_list
 
@@ -2895,7 +2948,9 @@ def compute_algs_full_pipeline(species_maps, species_names, fishers_multi_result
         'clusters': clusters,
         'alg_assignments': all_alg_assignments,
         'cluster_labels': cluster_labels,
-        'clusters_info': all_clusters_info
+        'clusters_info': all_clusters_info,
+        'alg_gene_sets': all_alg_gene_sets,
+        'alg_unique_pairs': all_alg_unique_pairs
     }
 
 def save_similarity_heatmap(similarity_matrix, species_names, output_path):
@@ -3464,6 +3519,58 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
                     (y_positions[sp_idx - 1] + y_positions[sp_idx]) / 2
                 )
 
+    # ===== PRECOMPUTE GENE-LEVEL ALG ASSIGNMENTS =====
+    og_to_alg = {}
+
+    if alg_results is not None and alg_colors:
+        alg_unique_pairs = alg_results.get('alg_unique_pairs', {})
+        alg_gene_sets = alg_results.get('alg_gene_sets', {})
+
+        if alg_unique_pairs:
+            for og_id, data in filtered_map.items():
+                positions = data['positions']
+                significant_segments = data['significant_segments']
+
+                # Count how many unique pairs each ALG has satisfied for this gene
+                alg_match_counts = defaultdict(int)
+
+                for alg_id, unique_pairs in alg_unique_pairs.items():
+                    for (idx_a, chr_a, idx_b, chr_b) in unique_pairs:
+                        if idx_a >= len(positions) or idx_b >= len(positions):
+                            continue
+                        pos_a = positions[idx_a]
+                        pos_b = positions[idx_b]
+                        if pos_a is None or pos_b is None:
+                            continue
+                        if pos_a[1] != chr_a or pos_b[1] != chr_b:
+                            continue
+                        if (idx_a, idx_b) in significant_segments or (idx_b, idx_a) in significant_segments:
+                            alg_match_counts[alg_id] += 1
+
+                if not alg_match_counts:
+                    continue
+
+                # Pick ALG with highest normalized score
+                best_alg = max(
+                    alg_match_counts,
+                    key=lambda a: (
+                        alg_match_counts[a] / max(len(alg_unique_pairs[a]), 1),
+                        alg_match_counts[a]
+                    )
+                )
+
+                if best_alg in alg_colors:
+                    og_to_alg[og_id] = best_alg
+
+        else:
+            # Fallback if no unique pairs stored (old pkl)
+            for alg_id, gene_set in alg_gene_sets.items():
+                for og_id in gene_set:
+                    if og_id not in og_to_alg:
+                        og_to_alg[og_id] = alg_id
+
+        print(f"Gene-to-ALG assignments: {len(og_to_alg)} genes mapped")
+    
     # ===== DRAW RIBBONS =====
     ribbons_drawn = 0
 
@@ -3499,11 +3606,26 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
             fraction2 = pos_idx2 / species_gene_counts[seg_j][chrom2]
             x2 = species_cumulative[seg_j][chrom2] + fraction2 * chr_width2
             y2 = y_positions[seg_j]
-
+            
             if alg_results is not None and alg_colors:
-                alg_id = get_alg_for_segment(og_id, species1_name, chrom1, species2_name, chrom2)
+                alg_id = og_to_alg.get(og_id)
                 if alg_id is None or alg_id not in alg_colors:
                     continue
+
+                chrom1_in_alg = (
+                    species1_name in alg_assignments and
+                    chrom1 in alg_assignments[species1_name] and
+                    alg_id in alg_assignments[species1_name][chrom1]
+                )
+                chrom2_in_alg = (
+                    species2_name in alg_assignments and
+                    chrom2 in alg_assignments[species2_name] and
+                    alg_id in alg_assignments[species2_name][chrom2]
+                )
+
+                if not chrom1_in_alg or not chrom2_in_alg:
+                    continue
+
                 ribbon_color = alg_colors[alg_id]
             else:
                 first_valid_pos = next((p for p in positions if p is not None), None)
@@ -3514,7 +3636,7 @@ def plot_synteny_ribbons_multi(filtered_map, species_maps, species_names,
 
             segment_points = [(x1, y1), (x2, y2)]
             curve_x, curve_y = get_bezier_curve(segment_points)
-
+            
             ax.plot(
                 curve_x, curve_y,
                 color=ribbon_color,
