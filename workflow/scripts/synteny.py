@@ -769,6 +769,156 @@ def run_orthofinder(filtered_prot_dir, output_dir, species_list=None, num_thread
         shutil.rmtree(tmp_proteome_dir, ignore_errors=True)
 
 
+## Create heatmap to visualize pairwise ortholog counts normalized by Jaccard index
+
+def save_orthology_heatmap(species_list, orthofinder_dir=None, rbh_dir=None,
+                            tsv_dir=None, output_path=None, mode='orthofinder'):
+    """
+    Compute and save a pairwise ortholog similarity heatmap normalized by the
+    Jaccard index for either OrthoFinder or RBH results.
+
+    For OrthoFinder, uses post-filtered 1-to-1 ortholog pairs from pairwise
+    Orthologues TSV files. For RBH, uses raw pairwise RBH TSV files.
+
+    The diagonal is set to the number of unique genes appearing in ANY ortholog
+    pair across all pairwise comparisons for that species. This excludes
+    single-species (orphan) genes from the denominator, ensuring Jaccard <= 1.0
+    and making the metric consistent with the shared gene space rather than the
+    total gene space.
+
+    Jaccard index = intersection / (A + B - intersection)
+    where A and B are the orthologous gene counts for each species (diagonal)
+    and intersection is the number of shared 1-to-1 ortholog pairs.
+
+    Parameters:
+    -----------
+    species_list : list of str
+        List of species IDs
+    orthofinder_dir : str or None
+        Path to OrthoFinder Orthologues directory (required if mode='orthofinder')
+    rbh_dir : str or None
+        Path to RBH results directory (required if mode='rbh')
+    tsv_dir : str or None
+        Directory containing {species}.tsv coordinate files (not used for
+        diagonal computation but kept for API consistency)
+    output_path : str
+        Full path to save the heatmap PNG
+    mode : str
+        'orthofinder' or 'rbh' (default: 'orthofinder')
+
+    Returns:
+    --------
+    df_jaccard : pd.DataFrame
+        Jaccard-normalized pairwise ortholog matrix
+    """
+
+    from itertools import combinations
+
+    all_combs = list(combinations(species_list, 2))
+
+    # ===== Step 1: Build raw pairwise counts matrix =====
+    df_counts = pd.DataFrame(0, index=species_list, columns=species_list, dtype=float)
+
+    # Read all pairwise files and store DataFrames for reuse in diagonal step
+    pairwise_dfs = {}
+
+    for sp1, sp2 in all_combs:
+        count = 0
+        df_pair = None
+
+        if mode == 'orthofinder':
+            pair_path = os.path.join(orthofinder_dir, f"Orthologues_{sp1}", f"{sp1}__v__{sp2}.tsv")
+            if not os.path.exists(pair_path):
+                pair_path = os.path.join(orthofinder_dir, f"Orthologues_{sp2}", f"{sp2}__v__{sp1}.tsv")
+            if os.path.exists(pair_path):
+                df_pair = pd.read_csv(pair_path, sep='\t')
+                sp_cols = [c for c in df_pair.columns if c != 'Orthogroup']
+                # Post-filter: keep only strict 1-to-1 pairs
+                df_pair = df_pair[~df_pair[sp_cols].apply(
+                    lambda col: col.str.contains(',', na=False)
+                ).any(axis=1)]
+                count = len(df_pair)
+            else:
+                print(f"  WARNING: OrthoFinder pair file not found for {sp1} vs {sp2}")
+
+        elif mode == 'rbh':
+            pair_path = os.path.join(rbh_dir, f"{sp1}__RBH__{sp2}.tsv")
+            if not os.path.exists(pair_path):
+                pair_path = os.path.join(rbh_dir, f"{sp2}__RBH__{sp1}.tsv")
+            if os.path.exists(pair_path):
+                df_pair = pd.read_csv(pair_path, sep='\t')
+                count = len(df_pair)
+            else:
+                print(f"  WARNING: RBH pair file not found for {sp1} vs {sp2}")
+
+        df_counts.loc[sp1, sp2] = count
+        df_counts.loc[sp2, sp1] = count
+        if df_pair is not None:
+            pairwise_dfs[(sp1, sp2)] = df_pair
+
+    # ===== Step 2: Diagonal = unique genes appearing in ANY ortholog pair =====
+    for sp in species_list:
+        genes_in_pairs = set()
+        for sp2 in species_list:
+            if sp == sp2:
+                continue
+            # Try both orderings in pairwise_dfs
+            key = (sp, sp2) if (sp, sp2) in pairwise_dfs else (sp2, sp) if (sp2, sp) in pairwise_dfs else None
+            if key is None:
+                continue
+            df_pair = pairwise_dfs[key]
+            # Get the column for this species
+            if sp in df_pair.columns:
+                genes_in_pairs.update(df_pair[sp].dropna().tolist())
+        df_counts.loc[sp, sp] = len(genes_in_pairs)
+        print(f"  {sp}: {len(genes_in_pairs)} genes in ortholog pairs")
+
+    # ===== Step 3: Jaccard normalization =====
+    df_jaccard = pd.DataFrame(0.0, index=species_list, columns=species_list)
+
+    for sp in species_list:
+        df_jaccard.loc[sp, sp] = 1.0
+
+    for sp1, sp2 in all_combs:
+        intersection = df_counts.loc[sp1, sp2]
+        union = df_counts.loc[sp1, sp1] + df_counts.loc[sp2, sp2] - intersection
+        jaccard = intersection / union if union > 0 else 0.0
+        df_jaccard.loc[sp1, sp2] = jaccard
+        df_jaccard.loc[sp2, sp1] = jaccard
+
+    # ===== Step 4: Plot heatmap =====
+    n = len(species_list)
+    figsize = max(8, n * 0.8)
+
+    fig, ax = plt.subplots(figsize=(figsize, figsize * 0.85))
+
+    sns.heatmap(
+        df_jaccard,
+        cmap='Reds',
+        square=True,
+        vmin=0,
+        vmax=1,
+        annot=True,
+        fmt='.2f',
+        annot_kws={'size': max(6, 10 - n // 3)},
+        cbar_kws={'label': 'Jaccard Index (shared 1-to-1 orthologs / union orthologous genes)'},
+        xticklabels=True,
+        yticklabels=True,
+        ax=ax
+    )
+
+    method_label = 'OrthoFinder (post-filter 1-to-1)' if mode == 'orthofinder' else 'RBH'
+    ax.set_title(f'Pairwise ortholog similarity ({method_label})', fontsize=14, pad=12)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right', fontsize=10)
+    ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"✅ Orthology heatmap saved to: {output_path}")
+    return df_jaccard
+
 # AFTER ORTHOLOGY PREDICTION
 
 ## Orthology Methods Comparison

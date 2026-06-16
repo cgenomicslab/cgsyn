@@ -115,13 +115,14 @@ rule run_orthofinder:
         inflation = config["orthofinder"].get("inflation", 1.2),
         tree_method = config["orthofinder"].get("tree_method", "msa"),
         msa_program = config["orthofinder"].get("msa_program", "famsa"),
-        tree_inference = config["orthofinder"].get("tree_inference", "fasttree")
+        tree_inference = config["orthofinder"].get("tree_inference", "fasttree"),
+        tsv_dir = config["tsv_dir"],
     log:
         "logs/orthofinder.log"
     run:
-        import sys
+        import sys, os
         sys.path.insert(0, "workflow/scripts")
-        from synteny import run_orthofinder
+        from synteny import run_orthofinder, save_orthology_heatmap
         ortho_path = run_orthofinder(
             filtered_prot_dir=params.proteome_dir,
             species_list=SPECIES,
@@ -136,6 +137,13 @@ rule run_orthofinder:
         with open(output.ortho_path, 'w') as f:
             f.write(ortho_path)
         open(output.done, 'w').close()
+        save_orthology_heatmap(
+            species_list=SPECIES,
+            orthofinder_dir=ortho_path,
+            tsv_dir=params.tsv_dir,
+            output_path="results/orthofinder/orthology_heatmap.png",
+            mode='orthofinder'
+        )
 
 rule orthofinder_dotplot:
     input:
@@ -249,19 +257,27 @@ rule run_rbh:
         proteome_dir = config["filtered_proteome_dir"],
         output_dir = "results/rbh",
         threads = config["rbh"]["threads"],
-        aligner = config["rbh"]["aligner"]
+        aligner = config["rbh"]["aligner"],
+        tsv_dir = config["tsv_dir"],
     log:
         "logs/rbh.log"
     run:
         import sys
         sys.path.insert(0, "workflow/scripts")
-        from synteny import find_mutual_best_hits_multi
+        from synteny import find_mutual_best_hits_multi, save_orthology_heatmap
         find_mutual_best_hits_multi(
             species_list=SPECIES,
             proteome_dir=params.proteome_dir,
             output_dir=params.output_dir,
             num_threads=params.threads,
             aligner=params.aligner
+        )
+        save_orthology_heatmap(
+            species_list=SPECIES,
+            rbh_dir=params.output_dir,
+            tsv_dir=params.tsv_dir,
+            output_path="results/rbh/orthology_heatmap.png",
+            mode='rbh'
         )
 
 rule rbh_dotplot:
