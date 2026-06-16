@@ -15,6 +15,11 @@ CGSyn currently only works on Unix-based systems (Linux/macOS).
 git clone https://github.com/cgenomicslab/cgsyn.git
 cd cgsyn
 ```
+If you have already connected to GitHub via SSH key, run:
+```bash
+git clone git@github.com:cgenomicslab/cgsyn.git
+cd cgsyn
+```
 
 #### Install via browser
 1. Click on the blue "<> Code" button at the top of the repository page
@@ -97,7 +102,7 @@ You can either download these files manually from [NCBI Genome](https://www.ncbi
 
 - Example:
 ```bash
-./synteny.sh --download --species-queries "9606,Mus musculus" --species-labels "Hsap,Mmus"
+./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
 ```
 The "species-queries" flag can take either the species' Tax ID or its scientific name. The "species-labels" flag renames the proteome and annotation 
 files with your preferred labels (e.g. Hsap.faa.gz, Hsap.gff.gz). While optional, it is highly recommended you utilize this flag to set easily distinguishable, 
@@ -128,7 +133,7 @@ correct folders and rename them with a readable, publication-ready species label
 
 By running:
 ```bash
-./synteny.sh --species <sp1_label,sp2_label,sp3_label,...> --parse
+./synteny.sh --species Hsap,Ptro,Ggor --parse
 ```
 
 CGSyn will parse the gff and proteome files and
@@ -144,11 +149,11 @@ will be created and saved in ```./intermediates/tsv```. The former will be used 
 There are 2 alternatives for inferring gene orthology:
 1. Using the [Orthofinder](https://github.com/OrthoFinder/OrthoFinder) software by David Emms
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --orthofinder --aligner <diamond or blastp, default: diamond>
+./synteny.sh --species Hsap,Ptro,Ggor --orthofinder --aligner <diamond or blastp, default: diamond>
 ```
 2. Using a Reciprocal Best Hits (RBH) algorithm
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --rbh --aligner <diamond or blastp, default: diamond>
+./synteny.sh --species Hsap,Ptro,Ggor --rbh --aligner <diamond or blastp, default: diamond>
 ```
 
 **Orthofinder** runs an all-vs-all similarity search between the proteins of the query organisms, produces a sequence similarity graph and runs Markov Clustering to 
@@ -208,11 +213,11 @@ In Dot Plots, chromosomes are ordered nominally (e.g. 1-10, I-VII, A-F etc).
 To create dot plots, you can run either of these, depending on if you want to use the inference results from Orthofinder or RBH.
 
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --dotplots-orthofinder [OPTIONAL] --color-nonsignificant
+./synteny.sh --species Hsap,Ptro,Ggor --dotplots-orthofinder [OPTIONAL] --color-nonsignificant
 ```
 or
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --dotplots-rbh [OPTIONAL] --color-nonsignificant
+./synteny.sh --species Hsap,Ptro,Ggor --dotplots-rbh [OPTIONAL] --color-nonsignificant
 ``` 
 The plots are saved in .png format in the ```./results/dotplots_orthofinder``` and ```./results/dotplots_rbh``` directories.
 
@@ -226,11 +231,11 @@ In Ribbon Plots, chromosomes of species 1 are ordered nominally, while chromosom
 To create ribbon diagrams, you can run either of these, depending on if you want to use the inference results from Orthofinder or RBH:
 
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --ribbons-orthofinder
+./synteny.sh --species Hsap,Ptro,Ggor --ribbons-orthofinder
 ```
 or
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --ribbons-rbh
+./synteny.sh --species Hsap,Ptro,Ggor --ribbons-rbh
 ```
 The plots are saved in .png format in the ```./results/ribbons_orthofinder``` and ```./results/ribbons_rbh``` directories.
 
@@ -251,11 +256,11 @@ CGSyn's default ALG discovery algorithm takes a multi-species approach to identi
 You can run the ALG discovery algorithm with:
 
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --alg-discovery-orthofinder --similarity-threshold VALUE
+./synteny.sh --species Hsap,Ptro,Ggor --alg-discovery-orthofinder --similarity-threshold VALUE
 ```
 or
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --alg-discovery-rbh --similarity-threshold VALUE
+./synteny.sh --species Hsap,Ptro,Ggor --alg-discovery-rbh --similarity-threshold VALUE
 ```
 
 It is also possible to skip the species clustering step with the optional ```--no-cluster``` flag and infer the Linkage Groups which were present in the common ancestor of all your species, no matter how evolutionarily distant they are.
@@ -269,11 +274,11 @@ If ALG discovery has not been run (not suggested), ribbons are colored by the ch
 You can create multi-species ribbons diagrams with:
 
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --ribbons-multi-orthofinder
+./synteny.sh --species Hsap,Ptro,Ggor --ribbons-multi-orthofinder
 ```
 or
 ```bash
-./synteny.sh --species <sp1,sp2,sp3,...> --ribbons-multi-rbh
+./synteny.sh --species Hsap,Ptro,Ggor --ribbons-multi-rbh
 ```
 The plots are saved in .png format in the ```./results/ribbons_multi_orthofinder``` and ```./results/ribbons_multi_rbh``` directories.
 
@@ -288,15 +293,15 @@ The --download flag/function can only be run on its own.
 Orthofinder Full Analysis Example:
 
 ```bash
-./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,...">
-./synteny.sh --species <sp1,sp2,sp3,...> --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --cores 32
+./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
+./synteny.sh --species Hsap,Ptro,Ggor --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --cores 32
 ```
 
 RBH Full Analysis Example:
 
 ```bash
-./synteny.sh --download --species-queries <"species1,species2,species3,..."> --species-labels <"sp1,sp2,sp3,...">
-./synteny.sh --species <sp1,sp2,sp3,...> --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --cores 32
+./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
+./synteny.sh --species Hsap,Ptro,Ggor --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --cores 32
 ```
 
 ## Citations:
