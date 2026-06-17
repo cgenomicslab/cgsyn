@@ -176,7 +176,7 @@ def protein(prot_file, gff_file, output='tsv',):
     
 # Create Filtered Proteomes Only With The Longest Isoforms For Orthofinder
 
-def proteome_filter(df, prot_file, filtered_proteome):
+def proteome_filter(df, prot_file, filtered_proteome, tax_id):
     '''
     Parse the dataframe and proteome file from previous function and
     create filtered proteome with only the longest isoform of each gene
@@ -189,6 +189,8 @@ def proteome_filter(df, prot_file, filtered_proteome):
         Fasta proteome file from NCBI
     filtered_proteome: .faa file
         Fasta filtered proteome output
+    tax_id: str
+        NCBI taxonomy ID for this species, appended as header metadata
     '''
 
     # Get allowed protein IDs
@@ -220,7 +222,7 @@ def proteome_filter(df, prot_file, filtered_proteome):
                 
                 if protein_id in allowed_ids:
                     keep = True
-                    current_header = line
+                    current_header = f">{protein_id} {tax_id}"
                     current_seq = []
                 else:
                     keep = False

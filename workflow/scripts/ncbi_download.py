@@ -275,7 +275,7 @@ def find_optimal_assembly(species_query, interactive=True):
     print(f"   This species may have genome assemblies available in NCBI, but without functional annotation files (.gff), which are necessary for synteny analysis.")
     return None
 
-def download_genome(accession, output_dir, species_label):
+def download_genome(accession, output_dir, species_label, tax_id):
     """
     Download genome files using NCBI datasets.
     
@@ -287,6 +287,8 @@ def download_genome(accession, output_dir, species_label):
         Output directory
     species_label : str
         User-friendly label
+    tax_id : str
+        NCBI taxonomy ID for this species
     
     Returns:
     --------
@@ -295,12 +297,10 @@ def download_genome(accession, output_dir, species_label):
     
     print(f"   ⬇️  Downloading {species_label}...")
     
-    # Create temp directory
     temp_dir = Path(output_dir) / f'temp_download_{species_label}'
     temp_dir.mkdir(parents=True, exist_ok=True)
     
     try:
-        # Download
         cmd = [
             'datasets', 'download', 'genome', 'accession', accession,
             '--include', 'gff3,protein',
@@ -312,12 +312,10 @@ def download_genome(accession, output_dir, species_label):
             print(f"   ❌ Download command failed: {result.stderr}")
             return False
         
-        # Unzip
         subprocess.run(['unzip', '-q', str(temp_dir / 'genome.zip'), 
                        '-d', str(temp_dir)], 
                       capture_output=True, check=True)
         
-        # Find files
         data_dir = temp_dir / 'ncbi_dataset' / 'data' / accession
         
         gff_files = list(data_dir.glob('genomic.gff')) or list(data_dir.glob('*.gff'))
@@ -327,15 +325,16 @@ def download_genome(accession, output_dir, species_label):
             print(f"   ❌ Could not find GFF or protein files in download")
             return False
         
-        # Create output directories
         gff_out_dir = Path(output_dir) / 'gff'
         prot_out_dir = Path(output_dir) / 'proteomes'
+        taxid_out_dir = Path(output_dir) / 'taxids'
         gff_out_dir.mkdir(parents=True, exist_ok=True)
         prot_out_dir.mkdir(parents=True, exist_ok=True)
+        taxid_out_dir.mkdir(parents=True, exist_ok=True)
         
-        # Copy and compress
         gff_output = gff_out_dir / f'{species_label}.gff.gz'
         prot_output = prot_out_dir / f'{species_label}.faa.gz'
+        taxid_output = taxid_out_dir / f'{species_label}.txt'
         
         with open(gff_files[0], 'rb') as f_in:
             with gzip.open(gff_output, 'wb') as f_out:
@@ -345,10 +344,13 @@ def download_genome(accession, output_dir, species_label):
             with gzip.open(prot_output, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
         
+        with open(taxid_output, 'w') as f_out:
+            f_out.write(str(tax_id))
+        
         print(f"   ✅ Saved to resources/gff/{species_label}.gff.gz")
         print(f"   ✅ Saved to resources/proteomes/{species_label}.faa.gz")
+        print(f"   ✅ Saved tax ID {tax_id} to resources/taxids/{species_label}.txt")
         
-        # Cleanup
         shutil.rmtree(temp_dir)
         return True
         
@@ -428,7 +430,8 @@ Examples:
         
         # Download
         accession = assembly['accession']
-        success = download_genome(accession, args.output_dir, label)
+        tax_id = assembly.get('organism', {}).get('tax_id', 'unknown')
+        success = download_genome(accession, args.output_dir, label, tax_id)
         results.append((species_query, label, success))
     
     # Summary

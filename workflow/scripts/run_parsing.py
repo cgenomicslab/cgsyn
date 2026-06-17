@@ -20,9 +20,14 @@ df = pd.DataFrame({
 })
 df.to_csv(snakemake.output.tsv, sep='\t', index=False)
 
+# Read tax ID for this species
+with open(snakemake.params.taxid_file, 'r') as f:
+    tax_id = f.read().strip()
+
 # Filter Proteomes
 proteome_filter(
     df = df,
     prot_file=snakemake.input.proteome,
-    filtered_proteome=snakemake.output.filtered_proteome
+    filtered_proteome=snakemake.output.filtered_proteome,
+    tax_id=tax_id
 )

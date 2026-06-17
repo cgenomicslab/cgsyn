@@ -114,6 +114,8 @@ rule parse_gff_proteome:
     output:
         filtered_proteome = "intermediates/filtered_proteomes/{species}.faa",
         tsv = "intermediates/tsv/{species}.tsv"
+    params:
+        taxid_file = lambda wildcards: f"resources/taxids/{wildcards.species}.txt"
     log:
         "logs/parse_{species}.log"
     script:
