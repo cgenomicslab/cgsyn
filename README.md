@@ -102,7 +102,7 @@ You can either download these files manually from [NCBI Genome](https://www.ncbi
 
 - Example:
 ```bash
-./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
+./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels Hsap,Ptro,Ggor
 ```
 The "species-queries" flag can take either the species' Tax ID or its scientific name. The "species-labels" flag renames the proteome and annotation 
 files with your preferred labels (e.g. Hsap.faa.gz, Hsap.gff.gz). While optional, it is highly recommended you utilize this flag to set easily distinguishable, 
@@ -294,14 +294,14 @@ Orthofinder Full Analysis Example:
 
 ```bash
 ./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
-./synteny.sh --species Hsap,Ptro,Ggor --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --cores 32
+./synteny.sh --species Hsap,Ptro,Ggor --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --threads 16
 ```
 
 RBH Full Analysis Example:
 
 ```bash
 ./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
-./synteny.sh --species Hsap,Ptro,Ggor --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --cores 32
+./synteny.sh --species Hsap,Ptro,Ggor --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --threads 16
 ```
 
 ## Citations:
