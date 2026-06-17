@@ -24,6 +24,10 @@ sp1_map = synteny_map_creator(df, snakemake.params.sp1, snakemake.params.tsv_dir
 sp2_map = synteny_map_creator(df, snakemake.params.sp2, snakemake.params.tsv_dir)
 comparison_map = create_comparison_map(sp1_map, sp2_map, snakemake.params.sp1, snakemake.params.sp2)
 
+print(f"sp1_map size: {len(sp1_map)}")
+print(f"sp2_map size: {len(sp2_map)}")
+print(f"comparison_map size: {len(comparison_map)}")
+
 # Filter
 counts_df, results_df, significant_pairs = fishers(
     comparison_map,

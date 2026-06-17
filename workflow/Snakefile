@@ -182,7 +182,8 @@ rule orthofinder_dotplot:
             os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
             "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         color_nonsignificant = config["dotplot"].get("color_nonsignificant", False),
-        cb_colors = config.get("cb_colors", False)
+        cb_colors = config.get("cb_colors", False),
+        results_dir = RESULTS_DIR
     log:
         "logs/dotplot_orthofinder_{species1}_{species2}.log"
     script:
@@ -206,7 +207,8 @@ rule orthofinder_ribbon:
         orthogroups_tsv = lambda wildcards: os.path.join(
             os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
             "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
-        cb_colors = config.get("cb_colors", False)
+        cb_colors = config.get("cb_colors", False),
+        results_dir = RESULTS_DIR
     log:
         "logs/ribbon_orthofinder_{species1}_{species2}.log"
     script:
@@ -230,6 +232,7 @@ rule alg_discovery_orthofinder:
             os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
             "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         cluster_species = config.get("alg", {}).get("cluster_species", True),
+        results_dir = RESULTS_DIR
     log:
         "logs/alg_discovery_orthofinder.log"
     script:
@@ -259,6 +262,7 @@ rule orthofinder_ribbons_multi:
             "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         cb_colors = config.get("cb_colors", False),
         cluster_species = config.get("alg", {}).get("cluster_species", True),
+        results_dir = RESULTS_DIR
     log:
         "logs/ribbons_multi_orthofinder.log"
     script:
