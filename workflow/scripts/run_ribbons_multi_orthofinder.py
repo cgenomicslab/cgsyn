@@ -6,11 +6,13 @@ import matplotlib.pyplot as plt
 import pickle
 import os
 
-if not os.path.exists("results/orthofinder/orthologues_path.txt"):
+results_dir = snakemake.params.results_dir
+orthologues_path_file = f"{results_dir}/orthofinder/orthologues_path.txt"
+if not os.path.exists(orthologues_path_file):
     raise FileNotFoundError(
-        "OrthoFinder results not found. Please run --orthofinder first."
+        f"OrthoFinder results not found at {orthologues_path_file}. Please run --orthofinder first."
     )
-ortho_dir = open("results/orthofinder/orthologues_path.txt").read().strip()
+ortho_dir = open(orthologues_path_file).read().strip()
 
 color_palette = custom_colors_cb if snakemake.params.cb_colors else custom_colors
 species_list = snakemake.params.species_list

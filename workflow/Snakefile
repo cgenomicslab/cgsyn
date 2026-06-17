@@ -1,5 +1,6 @@
 import itertools
 from pathlib import Path
+import os
 
 # Load configuration
 configfile: "config/config.yaml"
@@ -17,70 +18,86 @@ from synteny import *
 SPECIES = config.get("species", [])
 SPECIES_PAIRS = list(itertools.combinations(SPECIES, 2))
 
+RESULTS_DIR = config.get("results_dir", "results")
+SHARED_OGS = config.get("shared_ogs", False)
+CLUSTER_SPECIES = config.get("alg", {}).get("cluster_species", True)
+
+def get_alg_subdir():
+    if SHARED_OGS and not CLUSTER_SPECIES:
+        return "_shared_ogs_no_cluster"
+    elif SHARED_OGS:
+        return "_shared_ogs"
+    elif not CLUSTER_SPECIES:
+        return "_no_cluster"
+    else:
+        return ""
+
+ALG_SUBDIR = get_alg_subdir()
+
 # Determine which outputs to generate based on config settings
 def get_final_outputs():
     outputs = []
-    
+
     if config["run_parsing"]:
         outputs.extend([
             f"intermediates/tsv/{sp}.tsv"
             for sp in SPECIES
         ])
-    
+
     if config["run_orthofinder"]:
-        outputs.append("results/orthofinder/done.txt")
-    
+        outputs.append(f"{RESULTS_DIR}/orthofinder/done.txt")
+
     if config["run_rbh"]:
-        outputs.append("results/rbh/MBH_Orthogroups.tsv")
-    
+        outputs.append(f"{RESULTS_DIR}/rbh/MBH_Orthogroups.tsv")
+
     if config["run_dotplots_orthofinder"]:
         outputs.extend([
-            f"results/dotplots_orthofinder/{sp1}_vs_{sp2}.png"
+            f"{RESULTS_DIR}/dotplots_orthofinder{ALG_SUBDIR}/{sp1}_vs_{sp2}.png"
             for sp1, sp2 in SPECIES_PAIRS
         ])
-    
+
     if config["run_dotplots_rbh"]:
         outputs.extend([
-            f"results/dotplots_rbh/{sp1}_vs_{sp2}.png"
+            f"{RESULTS_DIR}/dotplots_rbh/{sp1}_vs_{sp2}.png"
             for sp1, sp2 in SPECIES_PAIRS
         ])
-    
+
     if config["run_ribbons_orthofinder"]:
         outputs.extend([
-            f"results/ribbons_orthofinder/{sp1}_vs_{sp2}.png"
+            f"{RESULTS_DIR}/ribbons_orthofinder{ALG_SUBDIR}/{sp1}_vs_{sp2}.png"
             for sp1, sp2 in SPECIES_PAIRS
         ])
-    
+
     if config["run_ribbons_rbh"]:
         outputs.extend([
-            f"results/ribbons_rbh/{sp1}_vs_{sp2}.png"
+            f"{RESULTS_DIR}/ribbons_rbh/{sp1}_vs_{sp2}.png"
             for sp1, sp2 in SPECIES_PAIRS
         ])
-    
+
     if config["run_alg_discovery_orthofinder"]:
         outputs.extend([
-            "results/alg_orthofinder/alg_results.pkl",
-            "results/alg_orthofinder/alg_summary.txt"
+            f"{RESULTS_DIR}/alg_orthofinder{ALG_SUBDIR}/alg_results.pkl",
+            f"{RESULTS_DIR}/alg_orthofinder{ALG_SUBDIR}/alg_summary.txt"
         ])
-    
+
     if config["run_alg_discovery_rbh"]:
         outputs.extend([
-            "results/alg_rbh/alg_results.pkl",
-            "results/alg_rbh/alg_summary.txt"
+            f"{RESULTS_DIR}/alg_rbh{ALG_SUBDIR}/alg_results.pkl",
+            f"{RESULTS_DIR}/alg_rbh{ALG_SUBDIR}/alg_summary.txt"
         ])
-    
+
     if config["run_ribbons_multi_orthofinder"]:
-        outputs.append("results/ribbons_multi_orthofinder/multi_species_ribbon.png")
-    
+        outputs.append(f"{RESULTS_DIR}/ribbons_multi_orthofinder{ALG_SUBDIR}/multi_species_ribbon.png")
+
     if config["run_ribbons_multi_rbh"]:
-        outputs.append("results/ribbons_multi_rbh/multi_species_ribbon.png")
-    
+        outputs.append(f"{RESULTS_DIR}/ribbons_multi_rbh{ALG_SUBDIR}/multi_species_ribbon.png")
+
     if config["run_compare_methods"]:
         outputs.append("logs/orthology_comparison.txt")
-    
+
     if config["run_gene_analysis"]:
-        outputs.append("results/gene_analysis/gene_families.tsv")
-    
+        outputs.append(f"{RESULTS_DIR}/gene_analysis/gene_families.tsv")
+
     return outputs
 
 # Target rule
@@ -106,8 +123,8 @@ rule parse_gff_proteome:
 
 rule run_orthofinder:
     output:
-        done = "results/orthofinder/done.txt",
-        ortho_path = "results/orthofinder/orthologues_path.txt"
+        done = f"{RESULTS_DIR}/orthofinder/done.txt",
+        ortho_path = f"{RESULTS_DIR}/orthofinder/orthologues_path.txt"
     params:
         proteome_dir = config["filtered_proteome_dir"],
         threads = config["orthofinder"]["threads"],
@@ -117,6 +134,7 @@ rule run_orthofinder:
         msa_program = config["orthofinder"].get("msa_program", "famsa"),
         tree_inference = config["orthofinder"].get("tree_inference", "fasttree"),
         tsv_dir = config["tsv_dir"],
+        results_dir = RESULTS_DIR
     log:
         "logs/orthofinder.log"
     run:
@@ -141,7 +159,7 @@ rule run_orthofinder:
             species_list=SPECIES,
             orthofinder_dir=ortho_path,
             tsv_dir=params.tsv_dir,
-            output_path="results/orthofinder/orthology_heatmap.png",
+            output_path=f"{params.results_dir}/orthofinder/orthology_heatmap.png",
             mode='orthofinder'
         )
 
@@ -150,7 +168,7 @@ rule orthofinder_dotplot:
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
-        plot = "results/dotplots_orthofinder/{species1}_vs_{species2}.png"
+        plot = f"{RESULTS_DIR}/dotplots_orthofinder{ALG_SUBDIR}/{{species1}}_vs_{{species2}}.png"
     params:
         sp1 = lambda wildcards: wildcards.species1,
         sp2 = lambda wildcards: wildcards.species2,
@@ -161,8 +179,8 @@ rule orthofinder_dotplot:
         dot_alpha = config["dotplot"]["dot_alpha"],
         shared_ogs = config.get("shared_ogs", False),
         orthogroups_tsv = lambda wildcards: os.path.join(
-            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
-            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
+            os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         color_nonsignificant = config["dotplot"].get("color_nonsignificant", False),
         cb_colors = config.get("cb_colors", False)
     log:
@@ -175,7 +193,7 @@ rule orthofinder_ribbon:
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
-        plot = "results/ribbons_orthofinder/{species1}_vs_{species2}.png"
+        plot = f"{RESULTS_DIR}/ribbons_orthofinder{ALG_SUBDIR}/{{species1}}_vs_{{species2}}.png"
     params:
         sp1 = lambda wildcards: wildcards.species1,
         sp2 = lambda wildcards: wildcards.species2,
@@ -186,8 +204,8 @@ rule orthofinder_ribbon:
         curve_style = config["ribbon"]["curve_style"],
         shared_ogs = config.get("shared_ogs", False),
         orthogroups_tsv = lambda wildcards: os.path.join(
-            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
-            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
+            os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         cb_colors = config.get("cb_colors", False)
     log:
         "logs/ribbon_orthofinder_{species1}_{species2}.log"
@@ -198,8 +216,8 @@ rule alg_discovery_orthofinder:
     input:
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
-        alg_results = "results/alg_orthofinder/alg_results.pkl",
-        alg_summary = "results/alg_orthofinder/alg_summary.txt"
+        alg_results = f"{RESULTS_DIR}/alg_orthofinder{ALG_SUBDIR}/alg_results.pkl",
+        alg_summary = f"{RESULTS_DIR}/alg_orthofinder{ALG_SUBDIR}/alg_summary.txt"
     params:
         species_list = SPECIES,
         tsv_dir = config["tsv_dir"],
@@ -209,10 +227,9 @@ rule alg_discovery_orthofinder:
         min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
         shared_ogs = config.get("shared_ogs", False),
         orthogroups_tsv = lambda wildcards: os.path.join(
-            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
-            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
+            os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         cluster_species = config.get("alg", {}).get("cluster_species", True),
-
     log:
         "logs/alg_discovery_orthofinder.log"
     script:
@@ -222,7 +239,7 @@ rule orthofinder_ribbons_multi:
     input:
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
-        plot = "results/ribbons_multi_orthofinder/multi_species_ribbon.png"
+        plot = f"{RESULTS_DIR}/ribbons_multi_orthofinder{ALG_SUBDIR}/multi_species_ribbon.png"
     params:
         species_list = SPECIES,
         tsv_dir = config["tsv_dir"],
@@ -232,17 +249,16 @@ rule orthofinder_ribbons_multi:
         figsize = config["ribbons_multi"]["figsize"],
         curve_style = config["ribbons_multi"]["curve_style"],
         alg_discovery = config.get("run_alg_discovery_orthofinder", False),
-        alg_results_path = "results/alg_orthofinder/alg_results.pkl",
-        alg_summary_path = "results/alg_orthofinder/alg_summary.txt",
+        alg_results_path = f"{RESULTS_DIR}/alg_orthofinder{ALG_SUBDIR}/alg_results.pkl",
+        alg_summary_path = f"{RESULTS_DIR}/alg_orthofinder{ALG_SUBDIR}/alg_summary.txt",
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
         min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
         shared_ogs = config.get("shared_ogs", False),
         orthogroups_tsv = lambda wildcards: os.path.join(
-            os.path.dirname(open("results/orthofinder/orthologues_path.txt").read().strip()),
-            "Orthogroups", "Orthogroups.tsv") if os.path.exists("results/orthofinder/orthologues_path.txt") else "",
+            os.path.dirname(open(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt").read().strip()),
+            "Orthogroups", "Orthogroups.tsv") if os.path.exists(f"{RESULTS_DIR}/orthofinder/orthologues_path.txt") else "",
         cb_colors = config.get("cb_colors", False),
         cluster_species = config.get("alg", {}).get("cluster_species", True),
-        
     log:
         "logs/ribbons_multi_orthofinder.log"
     script:
@@ -252,10 +268,10 @@ rule orthofinder_ribbons_multi:
 
 rule run_rbh:
     output:
-        orthogroups = "results/rbh/MBH_Orthogroups.tsv",
+        orthogroups = f"{RESULTS_DIR}/rbh/MBH_Orthogroups.tsv",
     params:
         proteome_dir = config["filtered_proteome_dir"],
-        output_dir = "results/rbh",
+        output_dir = f"{RESULTS_DIR}/rbh",
         threads = config["rbh"]["threads"],
         aligner = config["rbh"]["aligner"],
         tsv_dir = config["tsv_dir"],
@@ -276,7 +292,7 @@ rule run_rbh:
             species_list=SPECIES,
             rbh_dir=params.output_dir,
             tsv_dir=params.tsv_dir,
-            output_path="results/rbh/orthology_heatmap.png",
+            output_path=f"{params.output_dir}/orthology_heatmap.png",
             mode='rbh'
         )
 
@@ -285,11 +301,11 @@ rule rbh_dotplot:
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
-        plot = "results/dotplots_rbh/{species1}_vs_{species2}.png"
+        plot = f"{RESULTS_DIR}/dotplots_rbh/{{species1}}_vs_{{species2}}.png"
     params:
         sp1 = lambda wildcards: wildcards.species1,
         sp2 = lambda wildcards: wildcards.species2,
-        rbh_dir = "results/rbh",
+        rbh_dir = f"{RESULTS_DIR}/rbh",
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
@@ -307,11 +323,11 @@ rule rbh_ribbon:
         tsv1 = "intermediates/tsv/{species1}.tsv",
         tsv2 = "intermediates/tsv/{species2}.tsv"
     output:
-        plot = "results/ribbons_rbh/{species1}_vs_{species2}.png"
+        plot = f"{RESULTS_DIR}/ribbons_rbh/{{species1}}_vs_{{species2}}.png"
     params:
         sp1 = lambda wildcards: wildcards.species1,
         sp2 = lambda wildcards: wildcards.species2,
-        rbh_dir = "results/rbh",
+        rbh_dir = f"{RESULTS_DIR}/rbh",
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
@@ -327,11 +343,11 @@ rule alg_discovery_rbh:
     input:
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
-        alg_results = "results/alg_rbh/alg_results.pkl",
-        alg_summary = "results/alg_rbh/alg_summary.txt"
+        alg_results = f"{RESULTS_DIR}/alg_rbh{ALG_SUBDIR}/alg_results.pkl",
+        alg_summary = f"{RESULTS_DIR}/alg_rbh{ALG_SUBDIR}/alg_summary.txt"
     params:
         species_list = SPECIES,
-        rbh_dir = "results/rbh",
+        rbh_dir = f"{RESULTS_DIR}/rbh",
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
@@ -347,10 +363,10 @@ rule rbh_ribbons_multi:
     input:
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
-        plot = "results/ribbons_multi_rbh/multi_species_ribbon.png"
+        plot = f"{RESULTS_DIR}/ribbons_multi_rbh{ALG_SUBDIR}/multi_species_ribbon.png"
     params:
         species_list = SPECIES,
-        rbh_dir = "results/rbh",
+        rbh_dir = f"{RESULTS_DIR}/rbh",
         tsv_dir = config["tsv_dir"],
         alpha = config["fishers"]["alpha"],
         min_matches = config["fishers"]["min_matches"],
@@ -358,8 +374,8 @@ rule rbh_ribbons_multi:
         figsize = config["ribbons_multi"]["figsize"],
         curve_style = config["ribbons_multi"]["curve_style"],
         alg_discovery = config.get("run_alg_discovery_rbh", False),
-        alg_results_path = "results/alg_rbh/alg_results.pkl",
-        alg_summary_path = "results/alg_rbh/alg_summary.txt",
+        alg_results_path = f"{RESULTS_DIR}/alg_rbh{ALG_SUBDIR}/alg_results.pkl",
+        alg_summary_path = f"{RESULTS_DIR}/alg_rbh{ALG_SUBDIR}/alg_summary.txt",
         similarity_threshold = config.get("alg", {}).get("similarity_threshold", 0.3),
         min_orthologs = config.get("alg", {}).get("min_orthologs", 10),
         cb_colors = config.get("cb_colors", False),
@@ -375,8 +391,8 @@ rule compare_methods:
     output:
         report = "logs/orthology_comparison.txt"
     params:
-        ortho_dir = "results/orthofinder/orthologues_path.txt",
-        rbh_dir = "results/rbh"
+        ortho_dir = f"{RESULTS_DIR}/orthofinder/orthologues_path.txt",
+        rbh_dir = f"{RESULTS_DIR}/rbh"
     log:
         "logs/compare_methods.log"
     script:
@@ -387,18 +403,18 @@ rule compare_methods:
 rule gene_analysis:
     input:
         rbh_files = lambda wildcards: [
-            f"results/rbh/Orthologues_{species1}/{species1}__v__{species2}.tsv.tsv"
+            f"{RESULTS_DIR}/rbh/Orthologues_{species1}/{species1}__v__{species2}.tsv.tsv"
             for sp1, sp2 in SPECIES_PAIRS
         ],
         tsv_files = expand("intermediates/tsv/{species}.tsv", species=SPECIES)
     output:
-        families = "results/gene_analysis/gene_families.tsv",
-        details = "results/gene_analysis/gene_family_details.txt"
+        families = f"{RESULTS_DIR}/gene_analysis/gene_families.tsv",
+        details = f"{RESULTS_DIR}/gene_analysis/gene_family_details.txt"
     params:
         triangle = config["gene_analysis"]["triangle_species"],
         rest = config["gene_analysis"]["rest_species"],
         mbh = config["gene_analysis"]["mbh"],
-        rbh_dir = "results/rbh",
+        rbh_dir = f"{RESULTS_DIR}/rbh",
         tsv_dir = config["tsv_dir"]
     log:
         "logs/gene_analysis.log"

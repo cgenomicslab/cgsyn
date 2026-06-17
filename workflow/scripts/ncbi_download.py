@@ -167,7 +167,7 @@ def find_optimal_assembly(species_query, interactive=True):
         print(f"   {get_assembly_info_string(assembly)}")
         
         if interactive:
-            response = input("   Use this assembly? [y/N]: ").strip().lower()
+            response = input("   Use this assembly? [Y/n]: ").strip().lower()
             if response == 'y':
                 return assembly
         else:
@@ -181,7 +181,7 @@ def find_optimal_assembly(species_query, interactive=True):
         print(f"   {get_assembly_info_string(assembly)}")
         
         if interactive:
-            response = input("   Use this assembly? [y/N]: ").strip().lower()
+            response = input("   Use this assembly? [Y/n]: ").strip().lower()
             if response == 'y':
                 return assembly
         else:
@@ -191,13 +191,13 @@ def find_optimal_assembly(species_query, interactive=True):
     # Try 5: Scaffold-level in RefSeq
     assembly = search_genome(species_query, 'scaffold', refseq_only=True, verbose=False)
     if assembly:
-        print(f"⚠️  Only scaffold-level RefSeq assembly found:")
+        print(f"🛑  Only scaffold-level RefSeq assembly found:")
         print(f"   {get_assembly_info_string(assembly)}")
         
         stats = assembly.get('assembly_stats', {})
         scaffold_count = stats.get('number_of_scaffolds', 0)
         
-        print(f"\n   ⚠️  WARNING: Scaffold-level assemblies may not be suitable for synteny analysis!")
+        print(f"\n   🛑  WARNING: Scaffold-level assemblies may not be suitable for synteny analysis!")
         print(f"   This assembly has {scaffold_count:,} scaffolds (not chromosomes)")
         
         if interactive:
@@ -211,13 +211,13 @@ def find_optimal_assembly(species_query, interactive=True):
     # Try 6: Scaffold-level in GenBank
     assembly = search_genome(species_query, 'scaffold', refseq_only=False, verbose=False)
     if assembly:
-        print(f"⚠️  Only scaffold-level GenBank assembly found:")
+        print(f"🛑  Only scaffold-level GenBank assembly found:")
         print(f"   {get_assembly_info_string(assembly)}")
         
         stats = assembly.get('assembly_stats', {})
         scaffold_count = stats.get('number_of_scaffolds', 0)
         
-        print(f"\n   ⚠️  WARNING: Scaffold-level assemblies may not be suitable for synteny analysis!")
+        print(f"\n   🛑  WARNING: Scaffold-level assemblies may not be suitable for synteny analysis!")
         print(f"   This assembly has {scaffold_count:,} scaffolds (not chromosomes)")
         
         if interactive:
@@ -231,7 +231,7 @@ def find_optimal_assembly(species_query, interactive=True):
     # Try 7: Contig-level in RefSeq
     assembly = search_genome(species_query, 'contig', refseq_only=True, verbose=False)
     if assembly:
-        print(f"⚠️  Only contig-level RefSeq assembly found:")
+        print(f"🛑  Only contig-level RefSeq assembly found:")
         print(f"   {get_assembly_info_string(assembly)}")
         
         stats = assembly.get('assembly_stats', {})
@@ -252,7 +252,7 @@ def find_optimal_assembly(species_query, interactive=True):
     # Try 8: Contig-level in GenBank
     assembly = search_genome(species_query, 'contig', refseq_only=False, verbose=False)
     if assembly:
-        print(f"⚠️  Only contig-level GenBank assembly found:")
+        print(f"🛑  Only contig-level GenBank assembly found:")
         print(f"   {get_assembly_info_string(assembly)}")
         
         stats = assembly.get('assembly_stats', {})

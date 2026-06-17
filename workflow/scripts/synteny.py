@@ -1231,11 +1231,13 @@ def synteny_map_creator(df, species, tsv_dir):
     sp_map: dict
         species physical chromosome map with genes in order, identified primarily by their OG ID
     '''
-
+    MT_NAMES = {'MT', 'Mt', 'chrM', 'M', 'mitochondrion', 'Mito', 'MtDNA'}
+    
     df_sp = df[['Orthogroup', species]]
     df_sp_core = df_sp[df_sp.apply(lambda x: all((x.str.len() > 0)), axis=1)].reset_index(drop=True)
 
     sp_tsv = pd.read_csv(f"{tsv_dir}/{species}.tsv", sep = "\t")
+    MT_NAMES = {'MT', 'Mt', 'chrM', 'M', 'mitochondrion', 'Mito', 'MtDNA'}
     
     d = {}
     pids = list(sp_tsv['ProteinID'])

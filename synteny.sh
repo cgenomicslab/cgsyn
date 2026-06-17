@@ -65,6 +65,11 @@ Examples:
 Workflow Control:
   --parse                         Run GFF/proteome parsing
   --no-parse                      Skip parsing (use existing intermediates)
+  --project NAME                  Use a separate results_NAME/ directory for
+                                  this analysis, keeping it isolated from other
+                                  projects. Resources and intermediates are
+                                  shared across projects. If not set, defaults
+                                  to "results/".
   --orthofinder                   Run OrthoFinder
   --inflation VALUE               MCL inflation parameter for OrthoFinder (default: 1.2)
                                   Higher = more, smaller orthogroups
@@ -166,9 +171,15 @@ while [[ $# -gt 0 ]]; do
             sed -i 's/run_parsing: .*/run_parsing: false/' "$TEMP_CONFIG"
             shift
             ;;
+        --project)
+            PROJECT="$2"
+            sed -i "s|results_dir: .*|results_dir: \"results_${PROJECT}\"|" "$TEMP_CONFIG"
+            shift 2
+            ;;
         --orthofinder)
             sed -i 's/run_orthofinder: .*/run_orthofinder: true/' "$TEMP_CONFIG"
             sed -i 's/run_rbh: .*/run_rbh: false/' "$TEMP_CONFIG"
+            ORTHOFINDER_REQUESTED=true
             shift
             ;;
         --inflation)
@@ -194,6 +205,7 @@ while [[ $# -gt 0 ]]; do
         --rbh)
             sed -i 's/run_rbh: .*/run_rbh: true/' "$TEMP_CONFIG"
             sed -i 's/run_orthofinder: .*/run_orthofinder: false/' "$TEMP_CONFIG"
+            RBH_REQUESTED=true
             shift
             ;;
         --compare-methods)
@@ -370,7 +382,9 @@ if [ "$DOWNLOAD_MODE" = true ]; then
     
     echo ""
     echo "Download complete! You can now run the pipeline with:"
-    echo "  ./synteny --species $SPECIES_LABELS --orthofinder --ribbons-multi --cores 16"
+    echo "  ./synteny --species $SPECIES_LABELS --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --threads 16"
+    echo "or"
+    echo "  ./synteny --species $SPECIES_LABELS --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --threads 16"
     exit 0
 fi
 
@@ -379,6 +393,38 @@ echo "Running Synteny Pipeline..."
 echo "Using config: $TEMP_CONFIG"
 echo ""
 
+RESULTS_DIR=$($PYTHON -c "import yaml; print(yaml.safe_load(open('$TEMP_CONFIG'))['results_dir'])")
+
+# Phase 1: run OrthoFinder/RBH alone first if requested, to avoid race
+# conditions with downstream rules that read their output directly
+# without a Snakemake dependency edge.
+if [ "$ORTHOFINDER_REQUESTED" = true ]; then
+    echo "Phase 1: Running OrthoFinder first..."
+    snakemake \
+        --configfile "$TEMP_CONFIG" \
+        --cores "$CORES" \
+        "${RESULTS_DIR}/orthofinder/done.txt" \
+        "${SNAKEMAKE_ARGS[@]}"
+    echo ""
+    echo "Phase 1 complete. Proceeding to remaining analyses..."
+    echo ""
+fi
+
+if [ "$RBH_REQUESTED" = true ]; then
+    echo "Phase 1: Running RBH first..."
+    snakemake \
+        --configfile "$TEMP_CONFIG" \
+        --cores "$CORES" \
+        "${RESULTS_DIR}/rbh/MBH_Orthogroups.tsv" \
+        "${SNAKEMAKE_ARGS[@]}"
+    echo ""
+    echo "Phase 1 complete. Proceeding to remaining analyses..."
+    echo ""
+fi
+
+# Phase 2: run everything else (rule all picks up all other requested
+# outputs from the config; OrthoFinder/RBH outputs already exist so
+# Snakemake won't rerun them)
 snakemake \
     --configfile "$TEMP_CONFIG" \
     --cores "$CORES" \

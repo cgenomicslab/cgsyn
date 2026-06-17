@@ -9,6 +9,9 @@ proteome_dir: "resources/proteomes"
 filtered_proteome_dir: "intermediates/filtered_proteomes"
 tsv_dir: "intermediates/tsv"
 
+## Results path
+results_dir: "results"
+
 # Analysis modes (set to true/false)
 run_parsing: false
 run_orthofinder: false
