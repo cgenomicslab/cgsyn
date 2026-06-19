@@ -144,7 +144,18 @@ CGSyn will parse the gff and proteome files and
 The new filtered proteomes will be saved in ```./intermediates/filtered_proteomes```, while .tsv files containing the following columns: ```GeneID, ProteinID, chr, start, end, strand```
 will be created and saved in ```./intermediates/tsv```. The former will be used in Orthology Inference, while the latter will be instrumental in the post-inference analyses.
 
-### Step 3: Orthology Inference
+### Step 3: Setting up a Project and Overwriting
+
+By running
+```bash
+./synteny.sh --Project primates
+```
+
+you can create a project folder for your results. This is useful when needing to run your analysis multiple times for different sets of species. Using this option will save all your results in folders named  ```./results_NAME```. This is however optional and not specifying a project name will simply save all results in the same ```./results``` folder.
+
+WARNING ⚠️: Not specifying a project name will overwrite files in your results folder every time you re-run an analysis you have run before.
+
+### Step 4: Orthology Inference
 
 There are 2 alternatives for inferring gene orthology:
 1. Using the [Orthofinder](https://github.com/OrthoFinder/OrthoFinder) software by David Emms
@@ -179,7 +190,7 @@ Therefore, Orthofinder is suggested.
 Similarly, using Diamond instead of BLASTP as an aligner for both inference methods is suggested due to its significantly quicker running time. Orthofinder has a few extra options for aligners,
 including  ```diamond_ultra_sens```, ```mmseqs``` and ```blastn```.
 
-Orthology Inference results will be saved in ```./results/orthofinder``` and ```./results/rbh``` respectively.
+Orthology Inference results will be saved in ```./results/orthofinder``` and ```./results/rbh``` respectively. A heatmap will also be saved visualizing the orthology comparison between species.
 
 You can also try running: 
 ```bash
@@ -198,7 +209,7 @@ For deeply diverged species, however, the number of inferred 1-to-1 pairs can be
 
 WARNING ⚠️: For neighboring species, this could cause an overinflation of conserved syntenic genes, producing a potentially chaotic visualization result. 
 
-### Step 4: Dot Plots and Ribbon Diagrams Creation
+### Step 5: Dot Plots and Ribbon Diagrams Creation
 
 **Oxford Dot Plots** are a standard tool in comparative genomics for visualizing synteny between two species. Each dot represents a pair of orthologous genes, placed according to their genomic position in each species - species 1 on the X axis and species 2 on the Y axis. Chromosomes are displayed sequentially along each axis, separated by gridlines.
 
@@ -239,7 +250,7 @@ or
 ```
 The plots are saved in .png format in the ```./results/ribbons_orthofinder``` and ```./results/ribbons_rbh``` directories.
 
-### Step 5: Ancestral Linkage Group Discovery and Multi-Species Ribbon Diagram
+### Step 6: Ancestral Linkage Group Discovery and Multi-Species Ribbon Diagram
 
 **Ancestral Linkage Groups (ALGs)** are sets of genes that were physically linked on the same chromosome in the last common ancestor of the species being compared, 
 and have remained co-localized across evolutionary time. Identifying ALGs allows us to reconstruct the ancestral chromosomal architecture of a lineage 
@@ -294,14 +305,14 @@ Orthofinder Full Analysis Example:
 
 ```bash
 ./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
-./synteny.sh --species Hsap,Ptro,Ggor --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --threads 16
+./synteny.sh --project primates --species Hsap,Ptro,Ggor --parse --orthofinder --dotplots-orthofinder --ribbons-orthofinder --alg-discovery-orthofinder --ribbons-multi-orthofinder --threads 16
 ```
 
 RBH Full Analysis Example:
 
 ```bash
 ./synteny.sh --download --species-queries "9606,Pan troglodytes,Gorilla gorilla" --species-labels "Hsap,Ptro,Ggor"
-./synteny.sh --species Hsap,Ptro,Ggor --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --threads 16
+./synteny.sh --project primates --species Hsap,Ptro,Ggor --parse --rbh --dotplots-rbh --ribbons-rbh --alg-discovery-rbh --ribbons-multi-rbh --threads 16
 ```
 
 ## Citations:
