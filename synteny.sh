@@ -62,6 +62,9 @@ Examples:
   # Then run pipeline
   ./synteny --species Hsapiens,Mmusculus,fly --orthofinder --ribbons-multi --cores 16
 
+Species Selection:
+  --species SP1,SP2,SP3   Comma-separated species list
+
 Workflow Control:
   --parse                         Run GFF/proteome parsing
   --no-parse                      Skip parsing (use existing intermediates)
@@ -71,20 +74,10 @@ Workflow Control:
                                   shared across projects. If not set, defaults
                                   to "results/".
   --orthofinder                   Run OrthoFinder
-  --inflation VALUE               MCL inflation parameter for OrthoFinder (default: 1.2)
-                                  Higher = more, smaller orthogroups
-                                  Lower  = fewer, larger orthogroups
-  --tree-method METHOD            Gene tree inference method (default: msa)
-                                  Options: msa, dendroblast
-  --msa-program PROGRAM           MSA program, only used with --tree-method msa (default: famsa)
-                                  Options: famsa, muscle, mafft
-  --tree-inference METHOD         Tree inference method, only used with --tree-method msa (default: fasttree)
-                                  Options: fasttree, fasttree_fastest, raxml, iqtree3
   --rbh                           Run RBH/MBH orthology inference
   --compare-methods       	  Compare OrthoFinder vs RBH orthology inference results
   --dotplots-orthofinder          Generate Oxford dot plots from OrthoFinder
   --dotplots-rbh                  Generate Oxford dot plots from RBH
-  --color-nonsignificant          Color non-significant dots by chromosome instead of grey in dot plots
   --ribbons-orthofinder           Generate pairwise ribbon plots from OrthoFinder
   --ribbons-rbh                   Generate pairwise ribbon plots from RBH
   --ribbons-multi-orthofinder     Generate multi-species ribbon plot from OrthoFinder
@@ -95,6 +88,22 @@ Workflow Control:
                                   otherwise colored by first species chromosomes)
   --alg-discovery-orthofinder     Run ALG discovery using OrthoFinder results
   --alg-discovery-rbh             Run ALG discovery using RBH results
+
+
+Parameters:
+  --threads N          Number of threads (default: from config)
+  --aligner TOOL       diamond or blast (default: diamond)
+  --inflation VALUE               MCL inflation parameter for OrthoFinder (default: 1.2)
+                                  Higher = more, smaller orthogroups
+                                  Lower  = fewer, larger orthogroups
+  --tree-method METHOD            Gene tree inference method (default: msa)
+                                  Options: msa, dendroblast
+  --msa-program PROGRAM           MSA program, only used with --tree-method msa (default: famsa)
+                                  Options: famsa, muscle, mafft
+  --tree-inference METHOD         Tree inference method, only used with --tree-method msa (default: fasttree)
+                                  Options: fasttree, fasttree_fastest, raxml, iqtree3
+  --alpha VALUE        		  Fisher's test alpha (default: 0.01)
+  --color-nonsignificant          Color non-significant dots by chromosome instead of grey in dot plots
   --no-cluster                    Treat all species as one group, skip synteny clustering
   --similarity-threshold VALUE    Similarity threshold for species clustering (default: 0.3)
                                   Species pairs below this threshold go into different clusters
@@ -104,19 +113,6 @@ Workflow Control:
                                   only - incompatible with --rbh.
   --cb-colors                     Use colorblind-safe color palette for all plots
                                   Based on Wong (2011) and Paul Tol's color schemes
-  --gene-analysis                 Run anchor gene family analysis
-
-Species Selection:
-  --species SP1,SP2,SP3   Comma-separated species list
-  --triangle SP1,SP2,SP3  Triangle species for gene analysis (3 required)
-  --rest SP4,SP5          Additional species for gene_analysis
-
-Parameters:
-  --threads N          Number of threads (default: from config)
-  --alpha VALUE        Fisher's test alpha (default: 0.01)
-  --aligner TOOL       diamond or blast (default: diamond)
-  --min-matches        Ensure all chromosomes have matches
-  --mbh                Use full MBH mode for Simakov
 
 Snakemake Options:
   --cores N            Number of cores for Snakemake (default: 1)
