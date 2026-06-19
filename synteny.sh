@@ -91,8 +91,8 @@ Workflow Control:
 
 
 Parameters:
-  --threads N          Number of threads (default: from config)
-  --aligner TOOL       diamond or blast (default: diamond)
+  --threads N          		  Number of threads (default: from config)
+  --aligner TOOL       		  diamond or blast (default: diamond)
   --inflation VALUE               MCL inflation parameter for OrthoFinder (default: 1.2)
                                   Higher = more, smaller orthogroups
                                   Lower  = fewer, larger orthogroups
